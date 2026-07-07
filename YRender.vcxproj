@@ -69,7 +69,11 @@
   <ItemGroup>
     <ClCompile Include="src\Assets\MeshFactory.cpp" />
     <ClCompile Include="src\Assets\ResourceManager.cpp" />
+    <ClCompile Include="src\Core\Input.cpp" />
+    <ClCompile Include="src\Core\Log.cpp" />
     <ClCompile Include="src\Core\Platform.cpp" />
+    <ClCompile Include="src\Core\ProjectConfig.cpp" />
+    <ClCompile Include="src\Scene\Camera.cpp" />
     <ClCompile Include="src\Scene\Scene.cpp" />
     <ClCompile Include="src\Renderer\DebugOverlay.cpp" />
     <ClCompile Include="src\Renderer\RenderDevice.cpp" />
@@ -85,10 +89,15 @@
   <ItemGroup>
     <ClInclude Include="src\Assets\MeshFactory.h" />
     <ClInclude Include="src\Assets\ResourceManager.h" />
+    <ClInclude Include="src\Core\Input.h" />
+    <ClInclude Include="src\Core\Log.h" />
     <ClInclude Include="src\Core\Platform.h" />
+    <ClInclude Include="src\Core\ProjectConfig.h" />
     <ClInclude Include="src\Renderer\DebugOverlay.h" />
+    <ClInclude Include="src\Renderer\FrameStats.h" />
     <ClInclude Include="src\Renderer\RenderDevice.h" />
     <ClInclude Include="src\Renderer\RendererApp.h" />
+    <ClInclude Include="src\Scene\Camera.h" />
     <ClInclude Include="src\Scene\Scene.h" />
     <ClInclude Include="src\Scene\SceneTypes.h" />
     <ClInclude Include="external\imgui\imgui.h" />
@@ -98,8 +107,10 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="assets\shaders\Standard.hlsl" />
+    <None Include="assets\shaders\Lighting.hlsl" />
     <None Include="assets\shaders\PostProcess.hlsl" />
     <None Include="assets\models\sample.obj" />
+    <None Include="config\y-render.ini" />
     <None Include="README.md" />
     <None Include="docs\architecture.md" />
     <None Include="docs\base-features.md" />

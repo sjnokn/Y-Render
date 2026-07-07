@@ -17,6 +17,9 @@ void Scene::Add(const SceneObject& object)
 void Scene::BuildDemo(int demoIndex, Mesh& cubeMesh, Mesh& planeMesh, Mesh& objMesh)
 {
     Clear();
+    m_directionalLights.clear();
+    m_directionalLights.push_back({XMFLOAT3(-0.35f, -0.85f, 0.35f), 1.0f, XMFLOAT3(1.0f, 0.95f, 0.85f), 0.0f});
+    m_directionalLights.push_back({XMFLOAT3(0.65f, -0.45f, -0.35f), 0.45f, XMFLOAT3(0.45f, 0.55f, 0.85f), 0.0f});
 
     if (demoIndex == 0)
     {

@@ -6,6 +6,7 @@ cbuffer PostProcessBuffer : register(b0)
 };
 
 Texture2D uSceneColor : register(t0);
+Texture2D uSceneDepth : register(t1);
 SamplerState uLinearSampler : register(s0);
 
 struct VSInput

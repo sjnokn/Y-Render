@@ -20,6 +20,8 @@ Run from a Developer PowerShell or normal PowerShell:
 
 ```powershell
 .\build.ps1
+.\build.ps1 -Configuration Release
+.\scripts\verify.ps1
 ```
 
 The script locates Visual Studio through `vswhere`, builds `YRender.vcxproj`, and places the executable under `build\bin\`.
@@ -36,6 +38,8 @@ The script locates Visual Studio through `vswhere`, builds `YRender.vcxproj`, an
 - `4`: vignette
 - `F1`: toggle wireframe
 - `F2`: toggle ImGui debug panel
+- `F5`: reload shaders
+- `F9`: capture PNG screenshot
 - `Esc`: quit
 
 ## Roadmap

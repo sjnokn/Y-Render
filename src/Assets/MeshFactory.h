@@ -7,6 +7,7 @@
 namespace YRender
 {
 bool LoadObj(const std::wstring& path, Mesh& outMesh);
+bool LoadGltf(const std::wstring& path, Mesh& outMesh);
 Mesh CreateCubeMesh();
 Mesh CreatePlaneMesh();
 } // namespace YRender

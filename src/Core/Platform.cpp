@@ -3,9 +3,15 @@
 #include <array>
 #include <cstdint>
 #include <sstream>
+#include <vector>
 
 namespace YRender
 {
+namespace
+{
+std::vector<std::wstring> g_assetRoots;
+}
+
 std::string WideToUtf8(const std::wstring& text)
 {
     if (text.empty())
@@ -57,6 +63,11 @@ bool FileExists(const std::wstring& path)
     return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
 }
 
+void AddAssetRoot(const std::wstring& root)
+{
+    g_assetRoots.push_back(root);
+}
+
 std::wstring FindAsset(const std::wstring& relativePath)
 {
     const std::wstring exeDir = GetExecutableDirectory();
@@ -68,6 +79,15 @@ std::wstring FindAsset(const std::wstring& relativePath)
     };
 
     for (const std::wstring& root : roots)
+    {
+        const std::wstring candidate = root + L"\\" + relativePath;
+        if (FileExists(candidate))
+        {
+            return candidate;
+        }
+    }
+
+    for (const std::wstring& root : g_assetRoots)
     {
         const std::wstring candidate = root + L"\\" + relativePath;
         if (FileExists(candidate))

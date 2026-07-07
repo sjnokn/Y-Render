@@ -1,9 +1,11 @@
 #include "Renderer/RenderDevice.h"
 
 #include "Core/Platform.h"
+#include "Core/Log.h"
 
 #include <algorithm>
 #include <iterator>
+#include <wincodec.h>
 
 namespace YRender
 {
@@ -63,6 +65,7 @@ void RenderDevice::Initialize(HWND hwnd, UINT width, UINT height)
     }
 
     ThrowIfFailed(hr, "D3D11CreateDeviceAndSwapChain");
+    m_context.As(&m_annotation);
     CreateBackBufferAndDepth();
     CreateCommonStates();
 }
@@ -80,6 +83,7 @@ void RenderDevice::Resize(UINT width, UINT height)
     m_context->OMSetRenderTargets(0, nullptr, nullptr);
     m_backBufferRtv.Reset();
     m_depthDsv.Reset();
+    m_depthSrv.Reset();
     m_depthTexture.Reset();
     m_sceneTarget = {};
 
@@ -122,6 +126,109 @@ void RenderDevice::Present()
     m_swapChain->Present(1, 0);
 }
 
+void RenderDevice::BeginEvent(const wchar_t* name)
+{
+    if (m_annotation)
+    {
+        m_annotation->BeginEvent(name);
+    }
+}
+
+void RenderDevice::EndEvent()
+{
+    if (m_annotation)
+    {
+        m_annotation->EndEvent();
+    }
+}
+
+bool RenderDevice::CaptureBackBufferPng(const std::wstring& path)
+{
+    ComPtr<ID3D11Texture2D> backBuffer;
+    if (FAILED(m_swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer))))
+    {
+        return false;
+    }
+
+    D3D11_TEXTURE2D_DESC desc{};
+    backBuffer->GetDesc(&desc);
+    desc.BindFlags = 0;
+    desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    desc.MiscFlags = 0;
+    desc.Usage = D3D11_USAGE_STAGING;
+
+    ComPtr<ID3D11Texture2D> staging;
+    if (FAILED(m_device->CreateTexture2D(&desc, nullptr, &staging)))
+    {
+        return false;
+    }
+
+    m_context->CopyResource(staging.Get(), backBuffer.Get());
+
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    if (FAILED(m_context->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped)))
+    {
+        return false;
+    }
+
+    ComPtr<IWICImagingFactory> factory;
+    HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory));
+    if (FAILED(hr))
+    {
+        m_context->Unmap(staging.Get(), 0);
+        return false;
+    }
+
+    ComPtr<IWICStream> stream;
+    ComPtr<IWICBitmapEncoder> encoder;
+    ComPtr<IWICBitmapFrameEncode> frame;
+    hr = factory->CreateStream(&stream);
+    if (SUCCEEDED(hr))
+    {
+        hr = stream->InitializeFromFilename(path.c_str(), GENERIC_WRITE);
+    }
+    if (SUCCEEDED(hr))
+    {
+        hr = factory->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder);
+    }
+    if (SUCCEEDED(hr))
+    {
+        hr = encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache);
+    }
+    if (SUCCEEDED(hr))
+    {
+        hr = encoder->CreateNewFrame(&frame, nullptr);
+    }
+    if (SUCCEEDED(hr))
+    {
+        hr = frame->Initialize(nullptr);
+    }
+    if (SUCCEEDED(hr))
+    {
+        hr = frame->SetSize(desc.Width, desc.Height);
+    }
+    WICPixelFormatGUID format = GUID_WICPixelFormat32bppBGRA;
+    if (SUCCEEDED(hr))
+    {
+        hr = frame->SetPixelFormat(&format);
+    }
+    if (SUCCEEDED(hr))
+    {
+        hr = frame->WritePixels(desc.Height, mapped.RowPitch, mapped.RowPitch * desc.Height, static_cast<BYTE*>(mapped.pData));
+    }
+    if (SUCCEEDED(hr))
+    {
+        hr = frame->Commit();
+    }
+    if (SUCCEEDED(hr))
+    {
+        hr = encoder->Commit();
+    }
+
+    m_context->Unmap(staging.Get(), 0);
+    return SUCCEEDED(hr);
+}
+
 void RenderDevice::CreateBackBufferAndDepth()
 {
     ComPtr<ID3D11Texture2D> backBuffer;
@@ -133,12 +240,22 @@ void RenderDevice::CreateBackBufferAndDepth()
     depthDesc.Height = m_height;
     depthDesc.MipLevels = 1;
     depthDesc.ArraySize = 1;
-    depthDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    depthDesc.Format = DXGI_FORMAT_R24G8_TYPELESS;
     depthDesc.SampleDesc.Count = 1;
-    depthDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+    depthDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
 
     ThrowIfFailed(m_device->CreateTexture2D(&depthDesc, nullptr, &m_depthTexture), "Create depth texture");
-    ThrowIfFailed(m_device->CreateDepthStencilView(m_depthTexture.Get(), nullptr, &m_depthDsv), "Create depth DSV");
+
+    D3D11_DEPTH_STENCIL_VIEW_DESC dsvDesc{};
+    dsvDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    dsvDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
+    ThrowIfFailed(m_device->CreateDepthStencilView(m_depthTexture.Get(), &dsvDesc, &m_depthDsv), "Create depth DSV");
+
+    D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+    srvDesc.Format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
+    srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+    srvDesc.Texture2D.MipLevels = 1;
+    ThrowIfFailed(m_device->CreateShaderResourceView(m_depthTexture.Get(), &srvDesc, &m_depthSrv), "Create depth SRV");
     CreateSceneTarget();
 }
 

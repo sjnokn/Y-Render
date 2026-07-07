@@ -1,7 +1,9 @@
 #include "Renderer/RendererApp.h"
 
 #include "Assets/MeshFactory.h"
+#include "Core/Log.h"
 #include "Core/Platform.h"
+#include "Core/ProjectConfig.h"
 #include "Renderer/DebugOverlay.h"
 
 #include "imgui.h"
@@ -12,6 +14,7 @@
 #include <cmath>
 #include <sstream>
 #include <stdexcept>
+#include <ctime>
 
 using namespace DirectX;
 
@@ -92,8 +95,8 @@ LRESULT RendererApp::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
     case WM_KEYDOWN:
         if (wParam < 256)
         {
-            const bool wasDown = m_keys[wParam];
-            m_keys[wParam] = true;
+            const bool wasDown = m_input.IsDown(static_cast<UINT>(wParam));
+            m_input.SetKey(static_cast<UINT>(wParam), true);
             if (!wasDown)
             {
                 OnKeyPressed(static_cast<UINT>(wParam));
@@ -103,7 +106,7 @@ LRESULT RendererApp::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
     case WM_KEYUP:
         if (wParam < 256)
         {
-            m_keys[wParam] = false;
+            m_input.SetKey(static_cast<UINT>(wParam), false);
         }
         return 0;
     default:
@@ -125,6 +128,14 @@ void RendererApp::OnKeyPressed(UINT key)
     {
         m_showDebugUi = !m_showDebugUi;
     }
+    else if (key == VK_F5)
+    {
+        ReloadShaders();
+    }
+    else if (key == VK_F9)
+    {
+        CaptureScreenshot();
+    }
     else if (key == VK_TAB)
     {
         m_demo = (m_demo + 1) % 2;
@@ -138,6 +149,20 @@ void RendererApp::OnKeyPressed(UINT key)
 
 void RendererApp::CreateAppWindow(HINSTANCE instance, int showCommand)
 {
+    CreateDirectoryW(L"logs", nullptr);
+    InitializeLog(L"logs\\y-render.log");
+    LogInfo("Starting Y-Render");
+
+    m_config = LoadProjectConfig(FindAsset(L"config\\y-render.ini"));
+    m_width = m_config.windowWidth;
+    m_height = m_config.windowHeight;
+    m_demo = m_config.defaultDemo;
+    m_showDebugUi = m_config.showDebugUi;
+    for (const std::wstring& root : m_config.assetRoots)
+    {
+        AddAssetRoot(root);
+    }
+
     WNDCLASSEXW wc{};
     wc.cbSize = sizeof(wc);
     wc.lpfnWndProc = WindowProc;
@@ -226,6 +251,40 @@ void RendererApp::LoadAssets()
     m_postVertexBuffer = m_resources.CreatePostQuad();
 }
 
+void RendererApp::ReloadShaders()
+{
+    try
+    {
+        m_standardShader = m_resources.CreateStandardShader();
+        m_postShader = m_resources.CreatePostShader();
+        LogInfo("Shaders reloaded");
+    }
+    catch (const std::exception& error)
+    {
+        LogError(std::string("Shader reload failed: ") + error.what());
+    }
+}
+
+void RendererApp::CaptureScreenshot()
+{
+    CreateDirectoryW(L"screenshots", nullptr);
+
+    std::time_t now = std::time(nullptr);
+    std::tm localTime{};
+    localtime_s(&localTime, &now);
+
+    wchar_t filename[128]{};
+    wcsftime(filename, std::size(filename), L"screenshots\\y-render-%Y%m%d-%H%M%S.png", &localTime);
+    if (m_renderDevice.CaptureBackBufferPng(filename))
+    {
+        LogInfo("Screenshot captured");
+    }
+    else
+    {
+        LogError("Screenshot capture failed");
+    }
+}
+
 void RendererApp::BuildScene()
 {
     m_scene.BuildDemo(m_demo, m_cubeMesh, m_planeMesh, m_objMesh);
@@ -264,71 +323,20 @@ void RendererApp::MainLoop()
 void RendererApp::Update(float dt)
 {
     m_time += dt;
+    m_frameStats.Reset(dt);
     m_fpsAccumulator += dt;
     ++m_fpsFrames;
     if (m_fpsAccumulator >= 0.5f)
     {
         m_currentFps = static_cast<float>(m_fpsFrames) / m_fpsAccumulator;
+        m_frameStats.fps = m_currentFps;
         m_fpsAccumulator = 0.0f;
         m_fpsFrames = 0;
         UpdateWindowTitle();
     }
 
     const ImGuiIO& io = ImGui::GetIO();
-    if (!io.WantCaptureKeyboard)
-    {
-        const float moveSpeed = (m_keys[VK_SHIFT] ? 8.0f : 3.5f) * dt;
-        const float lookSpeed = 1.6f * dt;
-        if (m_keys[VK_LEFT])
-        {
-            m_cameraYaw -= lookSpeed;
-        }
-        if (m_keys[VK_RIGHT])
-        {
-            m_cameraYaw += lookSpeed;
-        }
-        if (m_keys[VK_UP])
-        {
-            m_cameraPitch += lookSpeed;
-        }
-        if (m_keys[VK_DOWN])
-        {
-            m_cameraPitch -= lookSpeed;
-        }
-        m_cameraPitch = std::clamp(m_cameraPitch, -1.45f, 1.45f);
-
-        XMVECTOR forward = XMVector3Normalize(XMVectorSet(std::sin(m_cameraYaw), 0.0f, std::cos(m_cameraYaw), 0.0f));
-        XMVECTOR right = XMVector3Normalize(XMVector3Cross(XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f), forward));
-        XMVECTOR position = XMLoadFloat3(&m_cameraPosition);
-
-        if (m_keys['W'])
-        {
-            position += forward * moveSpeed;
-        }
-        if (m_keys['S'])
-        {
-            position -= forward * moveSpeed;
-        }
-        if (m_keys['D'])
-        {
-            position += right * moveSpeed;
-        }
-        if (m_keys['A'])
-        {
-            position -= right * moveSpeed;
-        }
-        if (m_keys['E'])
-        {
-            position += XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f) * moveSpeed;
-        }
-        if (m_keys['Q'])
-        {
-            position -= XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f) * moveSpeed;
-        }
-
-        XMStoreFloat3(&m_cameraPosition, position);
-    }
-
+    m_camera.Update(dt, m_input, !io.WantCaptureKeyboard);
     m_scene.Animate(m_time, m_demo);
 }
 
@@ -344,28 +352,30 @@ void RendererApp::UpdateWindowTitle()
 
 XMMATRIX RendererApp::CameraViewProjection() const
 {
-    const XMVECTOR position = XMLoadFloat3(&m_cameraPosition);
-    const XMVECTOR forward = XMVector3Normalize(XMVectorSet(
-        std::cos(m_cameraPitch) * std::sin(m_cameraYaw),
-        std::sin(m_cameraPitch),
-        std::cos(m_cameraPitch) * std::cos(m_cameraYaw),
-        0.0f));
-    const XMMATRIX view = XMMatrixLookToLH(position, forward, XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f));
     const float aspect = static_cast<float>(m_renderDevice.Width()) / static_cast<float>(std::max<UINT>(1, m_renderDevice.Height()));
-    const XMMATRIX projection = XMMatrixPerspectiveFovLH(XMConvertToRadians(60.0f), aspect, 0.05f, 200.0f);
-    return view * projection;
+    return m_camera.ViewProjection(aspect);
 }
 
 void RendererApp::Render()
 {
     const FLOAT sceneClear[] = {0.08f, 0.10f, 0.13f, 1.0f};
+    m_renderDevice.BeginEvent(L"Scene Pass");
+    ++m_frameStats.passes;
     m_renderDevice.BeginScene(sceneClear);
     m_renderDevice.SetSceneViewport();
     m_renderDevice.SetWireframe(m_wireframe);
 
     RenderSceneObjects();
+    m_renderDevice.EndEvent();
+
+    m_renderDevice.BeginEvent(L"Post Process");
+    ++m_frameStats.passes;
     RenderPostProcess();
+    m_renderDevice.EndEvent();
+
+    m_renderDevice.BeginEvent(L"Debug UI");
     RenderDebugUi();
+    m_renderDevice.EndEvent();
 
     m_renderDevice.Present();
 }
@@ -396,17 +406,26 @@ void RendererApp::RenderSceneObjects()
         CameraConstants cameraConstants;
         XMStoreFloat4x4(&cameraConstants.world, object.transform.Matrix());
         XMStoreFloat4x4(&cameraConstants.viewProj, viewProj);
-        cameraConstants.cameraPosition = m_cameraPosition;
+        cameraConstants.cameraPosition = m_camera.Position();
         cameraConstants.time = m_time;
         context->UpdateSubresource(m_cameraBuffer.Get(), 0, nullptr, &cameraConstants, 0, 0);
 
         MaterialConstants materialConstants;
         materialConstants.baseColor = object.material.baseColor;
         materialConstants.specularPower = object.material.specularPower;
-        materialConstants.useTexture = object.material.useTexture ? 1.0f : 0.0f;
+        materialConstants.useTexture = object.material.useAlbedoTexture ? 1.0f : 0.0f;
+        materialConstants.useNormalTexture = object.material.useNormalTexture ? 1.0f : 0.0f;
+        materialConstants.useSpecularTexture = object.material.useSpecularTexture ? 1.0f : 0.0f;
+        const auto& lights = m_scene.DirectionalLights();
+        materialConstants.lightCount = static_cast<int>(std::min<size_t>(lights.size(), 4));
+        for (int i = 0; i < materialConstants.lightCount; ++i)
+        {
+            materialConstants.lightDirections[i] = XMFLOAT4(lights[i].direction.x, lights[i].direction.y, lights[i].direction.z, 0.0f);
+            materialConstants.lightColors[i] = XMFLOAT4(lights[i].color.x, lights[i].color.y, lights[i].color.z, lights[i].intensity);
+        }
         context->UpdateSubresource(m_materialBuffer.Get(), 0, nullptr, &materialConstants, 0, 0);
 
-        ID3D11ShaderResourceView* srv = m_checkerTexture.srv.Get();
+        ID3D11ShaderResourceView* srv = object.material.albedoTexture ? object.material.albedoTexture->srv.Get() : m_checkerTexture.srv.Get();
         context->PSSetShaderResources(0, 1, &srv);
 
         const UINT stride = sizeof(Vertex);
@@ -415,14 +434,16 @@ void RendererApp::RenderSceneObjects()
         context->IASetVertexBuffers(0, 1, &vertexBuffer, &stride, &offset);
         context->IASetIndexBuffer(object.mesh->indexBuffer.Get(), DXGI_FORMAT_R32_UINT, 0);
         context->DrawIndexed(static_cast<UINT>(object.mesh->indices.size()), 0, 0);
+        ++m_frameStats.drawCalls;
+        m_frameStats.triangles += static_cast<int>(object.mesh->indices.size() / 3);
     }
 }
 
 void RendererApp::RenderPostProcess()
 {
     ID3D11DeviceContext* context = m_renderDevice.Context();
-    ID3D11ShaderResourceView* nullSrvs[] = {nullptr};
-    context->PSSetShaderResources(0, 1, nullSrvs);
+    ID3D11ShaderResourceView* nullSrvs[] = {nullptr, nullptr};
+    context->PSSetShaderResources(0, 2, nullSrvs);
 
     const FLOAT clear[] = {0.0f, 0.0f, 0.0f, 1.0f};
     m_renderDevice.BeginBackBuffer(clear);
@@ -446,11 +467,11 @@ void RendererApp::RenderPostProcess()
     context->PSSetConstantBuffers(0, 1, m_postBuffer.GetAddressOf());
     ID3D11SamplerState* sampler = m_renderDevice.LinearSampler();
     context->PSSetSamplers(0, 1, &sampler);
-    ID3D11ShaderResourceView* sceneSrv = m_renderDevice.SceneColorSrv();
-    context->PSSetShaderResources(0, 1, &sceneSrv);
+    ID3D11ShaderResourceView* postSrvs[] = {m_renderDevice.SceneColorSrv(), m_renderDevice.DepthSrv()};
+    context->PSSetShaderResources(0, 2, postSrvs);
     context->Draw(6, 0);
 
-    context->PSSetShaderResources(0, 1, nullSrvs);
+    context->PSSetShaderResources(0, 2, nullSrvs);
 }
 
 void RendererApp::RenderDebugUi()
@@ -467,6 +488,10 @@ void RendererApp::RenderDebugUi()
 
         ImGui::Text("Frame");
         ImGui::Text("FPS: %.1f", m_currentFps);
+        ImGui::Text("Frame: %.3f ms", m_frameStats.deltaSeconds * 1000.0f);
+        ImGui::Text("Draw Calls: %d", m_frameStats.drawCalls);
+        ImGui::Text("Triangles: %d", m_frameStats.triangles);
+        ImGui::Text("Passes: %d", m_frameStats.passes);
         ImGui::Text("Resolution: %u x %u", m_renderDevice.Width(), m_renderDevice.Height());
         ImGui::Separator();
 
@@ -481,14 +506,26 @@ void RendererApp::RenderDebugUi()
         const char* postModes[] = {"None", "Grayscale", "Invert", "Vignette"};
         ImGui::Combo("Post Process", &m_postMode, postModes, IM_ARRAYSIZE(postModes));
         ImGui::Checkbox("Wireframe", &m_wireframe);
+        if (ImGui::Button("Reload Shaders (F5)"))
+        {
+            ReloadShaders();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Screenshot (F9)"))
+        {
+            CaptureScreenshot();
+        }
 
         ImGui::Separator();
         ImGui::Text("Camera");
-        ImGui::Text("Position: %.2f %.2f %.2f", m_cameraPosition.x, m_cameraPosition.y, m_cameraPosition.z);
-        ImGui::Text("Yaw/Pitch: %.2f %.2f", m_cameraYaw, m_cameraPitch);
+        const XMFLOAT3& cameraPosition = m_camera.Position();
+        ImGui::Text("Position: %.2f %.2f %.2f", cameraPosition.x, cameraPosition.y, cameraPosition.z);
+        ImGui::Text("Yaw/Pitch: %.2f %.2f", m_camera.Yaw(), m_camera.Pitch());
+        ImGui::Text("Directional Lights: %d", static_cast<int>(m_scene.DirectionalLights().size()));
         ImGui::Separator();
         ImGui::Text("Controls");
-        ImGui::Text("F1 wireframe, F2 debug UI, Tab demo");
+        ImGui::Text("F1 wireframe, F2 debug UI");
+        ImGui::Text("F5 reload shaders, F9 screenshot, Tab demo");
 
         ImGui::End();
     }

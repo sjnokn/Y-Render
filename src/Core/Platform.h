@@ -15,5 +15,6 @@ std::wstring Utf8ToWide(const std::string& text);
 void ThrowIfFailed(HRESULT hr, const char* message);
 std::wstring GetExecutableDirectory();
 bool FileExists(const std::wstring& path);
+void AddAssetRoot(const std::wstring& root);
 std::wstring FindAsset(const std::wstring& relativePath);
 } // namespace YRender

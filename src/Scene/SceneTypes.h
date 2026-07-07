@@ -35,12 +35,25 @@ struct CameraConstants
 struct MaterialConstants
 {
     DirectX::XMFLOAT4 baseColor{1.0f, 1.0f, 1.0f, 1.0f};
-    DirectX::XMFLOAT4 lightDirection{-0.35f, -0.85f, 0.35f, 0.0f};
-    DirectX::XMFLOAT4 lightColor{1.0f, 0.95f, 0.85f, 1.0f};
     DirectX::XMFLOAT4 ambientColor{0.12f, 0.14f, 0.18f, 1.0f};
+    DirectX::XMFLOAT4 lightDirections[4]{
+        {-0.35f, -0.85f, 0.35f, 0.0f},
+        {0.65f, -0.45f, -0.35f, 0.0f},
+        {0.0f, -1.0f, 0.0f, 0.0f},
+        {0.0f, -1.0f, 0.0f, 0.0f},
+    };
+    DirectX::XMFLOAT4 lightColors[4]{
+        {1.0f, 0.95f, 0.85f, 1.0f},
+        {0.25f, 0.35f, 0.55f, 0.45f},
+        {0.0f, 0.0f, 0.0f, 0.0f},
+        {0.0f, 0.0f, 0.0f, 0.0f},
+    };
     float specularPower = 48.0f;
     float useTexture = 1.0f;
-    DirectX::XMFLOAT2 padding{};
+    float useNormalTexture = 0.0f;
+    float useSpecularTexture = 0.0f;
+    int lightCount = 2;
+    DirectX::XMFLOAT3 padding{};
 };
 
 struct PostConstants
@@ -64,11 +77,26 @@ struct Transform
     }
 };
 
+struct Texture;
+
 struct Material
 {
     DirectX::XMFLOAT4 baseColor{1.0f, 1.0f, 1.0f, 1.0f};
     float specularPower = 48.0f;
-    bool useTexture = true;
+    bool useAlbedoTexture = true;
+    bool useNormalTexture = false;
+    bool useSpecularTexture = false;
+    Texture* albedoTexture = nullptr;
+    Texture* normalTexture = nullptr;
+    Texture* specularTexture = nullptr;
+};
+
+struct DirectionalLight
+{
+    DirectX::XMFLOAT3 direction{-0.35f, -0.85f, 0.35f};
+    float intensity = 1.0f;
+    DirectX::XMFLOAT3 color{1.0f, 0.95f, 0.85f};
+    float padding = 0.0f;
 };
 
 struct Mesh

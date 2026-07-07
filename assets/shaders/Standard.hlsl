@@ -1,4 +1,5 @@
 #pragma pack_matrix(row_major)
+#include "Lighting.hlsl"
 
 cbuffer CameraBuffer : register(b0)
 {
@@ -11,12 +12,15 @@ cbuffer CameraBuffer : register(b0)
 cbuffer MaterialBuffer : register(b1)
 {
     float4 uBaseColor;
-    float4 uLightDirection;
-    float4 uLightColor;
     float4 uAmbientColor;
+    float4 uLightDirections[4];
+    float4 uLightColors[4];
     float uSpecularPower;
     float uUseTexture;
-    float2 uPadding;
+    float uUseNormalTexture;
+    float uUseSpecularTexture;
+    int uLightCount;
+    float3 uPadding;
 };
 
 Texture2D uBaseTexture : register(t0);
@@ -51,16 +55,19 @@ VSOutput VSMain(VSInput input)
 float4 PSMain(VSOutput input) : SV_TARGET
 {
     float3 normal = normalize(input.normal);
-    float3 lightDir = normalize(-uLightDirection.xyz);
     float3 viewDir = normalize(uCameraPosition - input.worldPosition);
-    float3 halfDir = normalize(lightDir + viewDir);
-
-    float ndotl = saturate(dot(normal, lightDir));
-    float specular = pow(saturate(dot(normal, halfDir)), max(uSpecularPower, 1.0f));
-
     float4 texel = uBaseTexture.Sample(uLinearSampler, input.uv);
     float4 albedo = lerp(uBaseColor, uBaseColor * texel, saturate(uUseTexture));
-    float3 lighting = uAmbientColor.rgb + ndotl * uLightColor.rgb + specular * uLightColor.rgb * 0.35f;
+    float3 lighting = uAmbientColor.rgb;
+
+    [unroll]
+    for (int i = 0; i < 4; ++i)
+    {
+        if (i < uLightCount)
+        {
+            lighting += EvaluateDirectionalLight(normal, viewDir, uLightDirections[i].xyz, uLightColors[i].rgb, uLightColors[i].a, uSpecularPower);
+        }
+    }
 
     return float4(albedo.rgb * lighting, albedo.a);
 }

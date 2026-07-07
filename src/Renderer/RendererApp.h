@@ -1,7 +1,11 @@
 #pragma once
 
 #include "Assets/ResourceManager.h"
+#include "Core/Input.h"
+#include "Core/ProjectConfig.h"
+#include "Renderer/FrameStats.h"
 #include "Renderer/RenderDevice.h"
+#include "Scene/Camera.h"
 #include "Scene/Scene.h"
 
 #include <windows.h>
@@ -26,6 +30,8 @@ private:
     void InitializeImGui();
     void ShutdownImGui();
     void LoadAssets();
+    void ReloadShaders();
+    void CaptureScreenshot();
     void BuildScene();
     void MainLoop();
     void Update(float dt);
@@ -40,15 +46,11 @@ private:
     UINT m_width = 1280;
     UINT m_height = 720;
     bool m_running = true;
-    bool m_keys[256]{};
     bool m_wireframe = false;
     bool m_showDebugUi = true;
     int m_postMode = 0;
     int m_demo = 0;
 
-    DirectX::XMFLOAT3 m_cameraPosition{0.0f, 2.0f, -6.0f};
-    float m_cameraYaw = 0.0f;
-    float m_cameraPitch = -0.15f;
     float m_time = 0.0f;
     float m_fpsAccumulator = 0.0f;
     int m_fpsFrames = 0;
@@ -57,6 +59,10 @@ private:
     RenderDevice m_renderDevice;
     ResourceManager m_resources;
     Scene m_scene;
+    Camera m_camera;
+    InputState m_input;
+    ProjectConfig m_config;
+    FrameStats m_frameStats;
 
     ComPtr<ID3D11Buffer> m_cameraBuffer;
     ComPtr<ID3D11Buffer> m_materialBuffer;

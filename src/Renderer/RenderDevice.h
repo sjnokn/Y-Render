@@ -5,7 +5,9 @@
 #include <windows.h>
 
 #include <d3d11.h>
+#include <d3d11_1.h>
 #include <wrl/client.h>
+#include <string>
 
 namespace YRender
 {
@@ -19,12 +21,16 @@ public:
     void SetSceneViewport();
     void SetWireframe(bool enabled);
     void Present();
+    void BeginEvent(const wchar_t* name);
+    void EndEvent();
+    bool CaptureBackBufferPng(const std::wstring& path);
 
     ID3D11Device* Device() const { return m_device.Get(); }
     ID3D11DeviceContext* Context() const { return m_context.Get(); }
     IDXGISwapChain* SwapChain() const { return m_swapChain.Get(); }
     ID3D11SamplerState* LinearSampler() const { return m_linearSampler.Get(); }
     ID3D11ShaderResourceView* SceneColorSrv() const { return m_sceneTarget.srv.Get(); }
+    ID3D11ShaderResourceView* DepthSrv() const { return m_depthSrv.Get(); }
 
     UINT Width() const { return m_width; }
     UINT Height() const { return m_height; }
@@ -44,9 +50,11 @@ private:
     ComPtr<ID3D11RenderTargetView> m_backBufferRtv;
     ComPtr<ID3D11Texture2D> m_depthTexture;
     ComPtr<ID3D11DepthStencilView> m_depthDsv;
+    ComPtr<ID3D11ShaderResourceView> m_depthSrv;
     ComPtr<ID3D11SamplerState> m_linearSampler;
     ComPtr<ID3D11RasterizerState> m_solidRasterizer;
     ComPtr<ID3D11RasterizerState> m_wireRasterizer;
     RenderTarget m_sceneTarget;
+    ComPtr<ID3DUserDefinedAnnotation> m_annotation;
 };
 } // namespace YRender

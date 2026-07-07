@@ -24,15 +24,29 @@
 | Render Device | D3D11 device, swap-chain, targets, states isolated in `RenderDevice` | Done |
 | Scene Container | Scene object ownership isolated in `Scene` | Done |
 | Resource Manager | Shader, buffer, mesh, and texture creation isolated in `ResourceManager` | Done |
+| Camera Class | Camera movement and projection isolated in `Camera` | Done |
+| Input System | Key state isolated in `InputState` | Done |
+| Material Slots | Albedo, normal, and specular slots represented on `Material` | Done |
+| Depth Texture SRV | Depth buffer can be sampled by shaders | Done |
+| Shader Includes | Shared HLSL lighting include added | Done |
+| Shader Reload | Runtime shader reload via F5 and debug UI | Done |
+| Multiple Lights | Basic directional light list and shader loop | Done |
+| Project Config | `config/y-render.ini` controls startup basics | Done |
+| glTF Entry | Minimal external-buffer glTF mesh loader path | Done |
+| Screenshot | PNG screenshot capture via F9 | Done |
+| Frame Stats | Draw calls, triangles, passes, frame time | Done |
+| Logging | OutputDebugString and `logs/y-render.log` | Done |
+| GPU Markers | D3D11 user-defined annotation events | Done |
+| Verification | Debug/Release verify script | Done |
 
 ## Next Foundation Improvements
 
 | Area | Feature |
 | --- | --- |
-| Assets | Add glTF loading and texture path resolution |
-| Materials | Normal/specular maps and serialized material files |
-| Rendering | Multiple lights, transparent queue, skybox |
-| Tooling | Screenshot capture, RenderDoc-friendly frame markers |
+| Assets | Broaden glTF coverage to skinning, materials, and embedded buffers |
+| Materials | Serialized material files and real normal/specular texture sampling |
+| Rendering | Transparent queue and skybox |
+| Tooling | In-app texture/depth viewers and screenshot naming UI |
 | Validation | Golden image tests for stable shader demos |
 
 ## Book Effect Mapping

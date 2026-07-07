@@ -1,3 +1,8 @@
+param(
+    [ValidateSet("Debug", "Release")]
+    [string]$Configuration = "Debug"
+)
+
 $ErrorActionPreference = "Stop"
 
 $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
@@ -15,9 +20,9 @@ if (!(Test-Path $msbuild)) {
     throw "MSBuild.exe was not found at $msbuild"
 }
 
-& $msbuild ".\YRender.vcxproj" /m /p:Configuration=Debug /p:Platform=x64
+& $msbuild ".\YRender.vcxproj" /m /p:Configuration=$Configuration /p:Platform=x64
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-Write-Host "Built build\bin\YRender.exe"
+Write-Host "Built $Configuration build\bin\YRender.exe"

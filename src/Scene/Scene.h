@@ -16,8 +16,10 @@ public:
 
     const std::vector<SceneObject>& Objects() const { return m_objects; }
     std::vector<SceneObject>& Objects() { return m_objects; }
+    const std::vector<DirectionalLight>& DirectionalLights() const { return m_directionalLights; }
 
 private:
     std::vector<SceneObject> m_objects;
+    std::vector<DirectionalLight> m_directionalLights;
 };
 } // namespace YRender
