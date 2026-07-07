@@ -35,6 +35,7 @@ The script locates Visual Studio through `vswhere`, builds `YRender.vcxproj`, an
 - `3`: invert
 - `4`: vignette
 - `F1`: toggle wireframe
+- `F2`: toggle ImGui debug panel
 - `Esc`: quit
 
 ## Roadmap

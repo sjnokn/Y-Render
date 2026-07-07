@@ -35,7 +35,7 @@
   <PropertyGroup>
     <OutDir>$(ProjectDir)build\bin\</OutDir>
     <IntDir>$(ProjectDir)build\obj\$(Configuration)\</IntDir>
-    <IncludePath>$(ProjectDir)src;$(IncludePath)</IncludePath>
+    <IncludePath>$(ProjectDir)src;$(ProjectDir)external\imgui;$(ProjectDir)external\imgui\backends;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
@@ -68,17 +68,33 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="src\Assets\MeshFactory.cpp" />
+    <ClCompile Include="src\Assets\ResourceManager.cpp" />
     <ClCompile Include="src\Core\Platform.cpp" />
+    <ClCompile Include="src\Scene\Scene.cpp" />
     <ClCompile Include="src\Renderer\DebugOverlay.cpp" />
+    <ClCompile Include="src\Renderer\RenderDevice.cpp" />
     <ClCompile Include="src\Renderer\RendererApp.cpp" />
     <ClCompile Include="src\YRender.cpp" />
+    <ClCompile Include="external\imgui\imgui.cpp" />
+    <ClCompile Include="external\imgui\imgui_draw.cpp" />
+    <ClCompile Include="external\imgui\imgui_tables.cpp" />
+    <ClCompile Include="external\imgui\imgui_widgets.cpp" />
+    <ClCompile Include="external\imgui\backends\imgui_impl_dx11.cpp" />
+    <ClCompile Include="external\imgui\backends\imgui_impl_win32.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\Assets\MeshFactory.h" />
+    <ClInclude Include="src\Assets\ResourceManager.h" />
     <ClInclude Include="src\Core\Platform.h" />
     <ClInclude Include="src\Renderer\DebugOverlay.h" />
+    <ClInclude Include="src\Renderer\RenderDevice.h" />
     <ClInclude Include="src\Renderer\RendererApp.h" />
+    <ClInclude Include="src\Scene\Scene.h" />
     <ClInclude Include="src\Scene\SceneTypes.h" />
+    <ClInclude Include="external\imgui\imgui.h" />
+    <ClInclude Include="external\imgui\imconfig.h" />
+    <ClInclude Include="external\imgui\backends\imgui_impl_dx11.h" />
+    <ClInclude Include="external\imgui\backends\imgui_impl_win32.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="assets\shaders\Standard.hlsl" />

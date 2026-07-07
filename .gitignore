@@ -14,3 +14,17 @@ Release/
 *.pdb
 *.ilk
 *.exe
+imgui.ini
+external/imgui/.github/
+external/imgui/docs/
+external/imgui/examples/
+external/imgui/misc/
+external/imgui/.editorconfig
+external/imgui/.gitattributes
+external/imgui/.gitignore
+external/imgui/imgui_demo.cpp
+external/imgui/backends/*
+!external/imgui/backends/imgui_impl_dx11.cpp
+!external/imgui/backends/imgui_impl_dx11.h
+!external/imgui/backends/imgui_impl_win32.cpp
+!external/imgui/backends/imgui_impl_win32.h

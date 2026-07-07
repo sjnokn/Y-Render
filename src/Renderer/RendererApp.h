@@ -1,15 +1,13 @@
 #pragma once
 
-#include "Scene/SceneTypes.h"
+#include "Assets/ResourceManager.h"
+#include "Renderer/RenderDevice.h"
+#include "Scene/Scene.h"
 
 #include <windows.h>
 
 #include <d3d11.h>
-#include <wincodec.h>
 #include <wrl/client.h>
-
-#include <string>
-#include <vector>
 
 namespace YRender
 {
@@ -24,19 +22,10 @@ private:
 
     void OnKeyPressed(UINT key);
     void CreateAppWindow(HINSTANCE instance, int showCommand);
-    void InitializeD3D();
-    void CreateBackBufferAndDepth();
-    void ResizeTargets();
-    void CreateSceneTarget();
-    void CreateCommonStates();
+    void InitializeRenderer();
+    void InitializeImGui();
+    void ShutdownImGui();
     void LoadAssets();
-    ShaderProgram CreateStandardShader();
-    ShaderProgram CreatePostShader();
-    void UploadMesh(Mesh& mesh);
-    Texture CreateCheckerTexture(UINT width, UINT height);
-    Texture CreateTextureFromRgba(UINT width, UINT height, const void* pixels, UINT pitch);
-    Texture LoadTextureWic(const std::wstring& path);
-    void CreatePostQuad();
     void BuildScene();
     void MainLoop();
     void Update(float dt);
@@ -45,6 +34,7 @@ private:
     void Render();
     void RenderSceneObjects();
     void RenderPostProcess();
+    void RenderDebugUi();
 
     HWND m_hwnd = nullptr;
     UINT m_width = 1280;
@@ -52,6 +42,7 @@ private:
     bool m_running = true;
     bool m_keys[256]{};
     bool m_wireframe = false;
+    bool m_showDebugUi = true;
     int m_postMode = 0;
     int m_demo = 0;
 
@@ -63,15 +54,10 @@ private:
     int m_fpsFrames = 0;
     float m_currentFps = 0.0f;
 
-    ComPtr<ID3D11Device> m_device;
-    ComPtr<ID3D11DeviceContext> m_context;
-    ComPtr<IDXGISwapChain> m_swapChain;
-    ComPtr<ID3D11RenderTargetView> m_backBufferRtv;
-    ComPtr<ID3D11Texture2D> m_depthTexture;
-    ComPtr<ID3D11DepthStencilView> m_depthDsv;
-    ComPtr<ID3D11SamplerState> m_linearSampler;
-    ComPtr<ID3D11RasterizerState> m_solidRasterizer;
-    ComPtr<ID3D11RasterizerState> m_wireRasterizer;
+    RenderDevice m_renderDevice;
+    ResourceManager m_resources;
+    Scene m_scene;
+
     ComPtr<ID3D11Buffer> m_cameraBuffer;
     ComPtr<ID3D11Buffer> m_materialBuffer;
     ComPtr<ID3D11Buffer> m_postBuffer;
@@ -79,12 +65,10 @@ private:
 
     ShaderProgram m_standardShader;
     ShaderProgram m_postShader;
-    RenderTarget m_sceneTarget;
     Texture m_checkerTexture;
 
     Mesh m_cubeMesh;
     Mesh m_planeMesh;
     Mesh m_objMesh;
-    std::vector<SceneObject> m_sceneObjects;
 };
 } // namespace YRender

@@ -20,12 +20,15 @@
 | Debug | FPS/status title, wireframe toggle, shader compile errors | Done |
 | Demos | Switchable primitive/OBJ scenes | Done |
 | Structure | Core/Scene/Assets/Renderer source modules | Done |
+| Debug UI | ImGui inspector-style debug panel | Done |
+| Render Device | D3D11 device, swap-chain, targets, states isolated in `RenderDevice` | Done |
+| Scene Container | Scene object ownership isolated in `Scene` | Done |
+| Resource Manager | Shader, buffer, mesh, and texture creation isolated in `ResourceManager` | Done |
 
 ## Next Foundation Improvements
 
 | Area | Feature |
 | --- | --- |
-| Debug UI | Add ImGui once dependency setup is ready |
 | Assets | Add glTF loading and texture path resolution |
 | Materials | Normal/specular maps and serialized material files |
 | Rendering | Multiple lights, transparent queue, skybox |
