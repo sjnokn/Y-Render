@@ -12,6 +12,7 @@ Y-Render is a small Direct3D 11 learning renderer focused on building a solid re
 - Procedural texture plus WIC texture loading support
 - Scene render target, fullscreen post-process pass, and simple effect switching
 - Demo scene switching and debug status in the window title
+- Separated source layout for Core, Scene, Assets, and Renderer modules
 
 ## Build
 
@@ -39,3 +40,5 @@ The script locates Visual Studio through `vswhere`, builds `YRender.vcxproj`, an
 ## Roadmap
 
 The first target is the 60% foundation: a renderer that can load and draw textured meshes with camera control, basic lighting, render-to-texture, post-processing, debug feedback, and isolated demo scenes. After that, book effects such as blur, heat haze, HDR/bloom, reflections, normal mapping, toon shading, fog, shadows, and displacement can be added as focused demos.
+
+See `docs/architecture.md` for the current module layout and the Unity-style concepts it maps to.

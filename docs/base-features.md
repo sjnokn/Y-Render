@@ -19,6 +19,7 @@
 | Post Process | Fullscreen pass with multiple modes | Done |
 | Debug | FPS/status title, wireframe toggle, shader compile errors | Done |
 | Demos | Switchable primitive/OBJ scenes | Done |
+| Structure | Core/Scene/Assets/Renderer source modules | Done |
 
 ## Next Foundation Improvements
 

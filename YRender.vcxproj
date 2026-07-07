@@ -67,13 +67,25 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="src\Assets\MeshFactory.cpp" />
+    <ClCompile Include="src\Core\Platform.cpp" />
+    <ClCompile Include="src\Renderer\DebugOverlay.cpp" />
+    <ClCompile Include="src\Renderer\RendererApp.cpp" />
     <ClCompile Include="src\YRender.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\Assets\MeshFactory.h" />
+    <ClInclude Include="src\Core\Platform.h" />
+    <ClInclude Include="src\Renderer\DebugOverlay.h" />
+    <ClInclude Include="src\Renderer\RendererApp.h" />
+    <ClInclude Include="src\Scene\SceneTypes.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="assets\shaders\Standard.hlsl" />
     <None Include="assets\shaders\PostProcess.hlsl" />
     <None Include="assets\models\sample.obj" />
     <None Include="README.md" />
+    <None Include="docs\architecture.md" />
     <None Include="docs\base-features.md" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
