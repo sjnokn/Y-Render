@@ -1,0 +1,16 @@
+*.pdf
+.vs/
+build/
+x64/
+Debug/
+Release/
+*.user
+*.suo
+*.VC.db
+*.VC.opendb
+*.log
+*.obj
+!assets/models/*.obj
+*.pdb
+*.ilk
+*.exe
