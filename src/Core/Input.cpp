@@ -31,4 +31,16 @@ bool InputState::ConsumePressed(UINT key)
     m_pressed[key] = false;
     return true;
 }
+
+void InputState::Clear()
+{
+    for (bool& down : m_down)
+    {
+        down = false;
+    }
+    for (bool& pressed : m_pressed)
+    {
+        pressed = false;
+    }
+}
 } // namespace YRender

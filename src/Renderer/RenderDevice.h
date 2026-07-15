@@ -3,10 +3,6 @@
 #include "Scene/SceneTypes.h"
 
 #include <windows.h>
-
-#include <d3d11.h>
-#include <d3d11_1.h>
-#include <wrl/client.h>
 #include <string>
 
 namespace YRender
@@ -17,44 +13,43 @@ public:
     void Initialize(HWND hwnd, UINT width, UINT height);
     void Resize(UINT width, UINT height);
     void BeginScene(const float clearColor[4]);
+    void BeginBloomTarget();
+    void BeginBlurTargetA();
+    void BeginBlurTargetB();
     void BeginBackBuffer(const float clearColor[4]);
     void SetSceneViewport();
+    void SetViewport(float x, float y, float width, float height);
     void SetWireframe(bool enabled);
     void Present();
     void BeginEvent(const wchar_t* name);
     void EndEvent();
     bool CaptureBackBufferPng(const std::wstring& path);
 
-    ID3D11Device* Device() const { return m_device.Get(); }
-    ID3D11DeviceContext* Context() const { return m_context.Get(); }
-    IDXGISwapChain* SwapChain() const { return m_swapChain.Get(); }
-    ID3D11SamplerState* LinearSampler() const { return m_linearSampler.Get(); }
-    ID3D11ShaderResourceView* SceneColorSrv() const { return m_sceneTarget.srv.Get(); }
-    ID3D11ShaderResourceView* DepthSrv() const { return m_depthSrv.Get(); }
+    bool IsInitialized() const { return m_glrc != nullptr; }
+    unsigned int SceneColorTexture() const { return m_sceneTarget.colorTexture; }
+    unsigned int DepthTexture() const { return m_sceneTarget.depthTexture; }
+    unsigned int BloomTexture() const { return m_bloomTarget.colorTexture; }
+    unsigned int BlurTextureA() const { return m_blurTargetA.colorTexture; }
+    unsigned int BlurTextureB() const { return m_blurTargetB.colorTexture; }
 
     UINT Width() const { return m_width; }
     UINT Height() const { return m_height; }
 
 private:
-    void CreateBackBufferAndDepth();
     void CreateSceneTarget();
-    void CreateCommonStates();
+    void DestroySceneTarget();
+    void CreateColorTarget(RenderTarget& target);
+    void DestroyColorTarget(RenderTarget& target);
+    void BeginColorTarget(const RenderTarget& target);
 
     HWND m_hwnd = nullptr;
+    HDC m_hdc = nullptr;
+    HGLRC m_glrc = nullptr;
     UINT m_width = 1;
     UINT m_height = 1;
-
-    ComPtr<ID3D11Device> m_device;
-    ComPtr<ID3D11DeviceContext> m_context;
-    ComPtr<IDXGISwapChain> m_swapChain;
-    ComPtr<ID3D11RenderTargetView> m_backBufferRtv;
-    ComPtr<ID3D11Texture2D> m_depthTexture;
-    ComPtr<ID3D11DepthStencilView> m_depthDsv;
-    ComPtr<ID3D11ShaderResourceView> m_depthSrv;
-    ComPtr<ID3D11SamplerState> m_linearSampler;
-    ComPtr<ID3D11RasterizerState> m_solidRasterizer;
-    ComPtr<ID3D11RasterizerState> m_wireRasterizer;
     RenderTarget m_sceneTarget;
-    ComPtr<ID3DUserDefinedAnnotation> m_annotation;
+    RenderTarget m_bloomTarget;
+    RenderTarget m_blurTargetA;
+    RenderTarget m_blurTargetB;
 };
 } // namespace YRender

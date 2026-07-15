@@ -11,12 +11,13 @@ class Scene
 public:
     void Clear();
     void Add(const SceneObject& object);
-    void BuildDemo(int demoIndex, Mesh& cubeMesh, Mesh& planeMesh, Mesh& objMesh);
+    void BuildDemo(int demoIndex, Mesh& characterMesh, Mesh& planeMesh, bool externalCharacterLoaded);
     void Animate(float time, int demoIndex);
 
     const std::vector<SceneObject>& Objects() const { return m_objects; }
     std::vector<SceneObject>& Objects() { return m_objects; }
     const std::vector<DirectionalLight>& DirectionalLights() const { return m_directionalLights; }
+    std::vector<DirectionalLight>& DirectionalLights() { return m_directionalLights; }
 
 private:
     std::vector<SceneObject> m_objects;

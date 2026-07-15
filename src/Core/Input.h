@@ -10,6 +10,7 @@ public:
     void SetKey(UINT key, bool down);
     bool IsDown(UINT key) const;
     bool ConsumePressed(UINT key);
+    void Clear();
 
 private:
     bool m_down[256]{};

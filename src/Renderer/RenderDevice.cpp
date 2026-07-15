@@ -1,11 +1,13 @@
 #include "Renderer/RenderDevice.h"
 
 #include "Core/Platform.h"
-#include "Core/Log.h"
+#include "Renderer/OpenGL.h"
 
 #include <algorithm>
-#include <iterator>
+#include <cstdint>
+#include <vector>
 #include <wincodec.h>
+#include <wrl/client.h>
 
 namespace YRender
 {
@@ -14,175 +16,148 @@ void RenderDevice::Initialize(HWND hwnd, UINT width, UINT height)
     m_hwnd = hwnd;
     m_width = std::max<UINT>(1, width);
     m_height = std::max<UINT>(1, height);
-
-    DXGI_SWAP_CHAIN_DESC swapDesc{};
-    swapDesc.BufferCount = 1;
-    swapDesc.BufferDesc.Width = m_width;
-    swapDesc.BufferDesc.Height = m_height;
-    swapDesc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    swapDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    swapDesc.OutputWindow = m_hwnd;
-    swapDesc.SampleDesc.Count = 1;
-    swapDesc.Windowed = TRUE;
-    swapDesc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
-
-    UINT flags = 0;
-#if defined(_DEBUG)
-    flags |= D3D11_CREATE_DEVICE_DEBUG;
-#endif
-
-    D3D_FEATURE_LEVEL featureLevel{};
-    const D3D_FEATURE_LEVEL requestedLevels[] = {D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0};
-    HRESULT hr = D3D11CreateDeviceAndSwapChain(
-        nullptr,
-        D3D_DRIVER_TYPE_HARDWARE,
-        nullptr,
-        flags,
-        requestedLevels,
-        static_cast<UINT>(std::size(requestedLevels)),
-        D3D11_SDK_VERSION,
-        &swapDesc,
-        &m_swapChain,
-        &m_device,
-        &featureLevel,
-        &m_context);
-
-    if (hr == E_INVALIDARG)
+    m_hdc = GetDC(m_hwnd);
+    if (!m_hdc)
     {
-        hr = D3D11CreateDeviceAndSwapChain(
-            nullptr,
-            D3D_DRIVER_TYPE_HARDWARE,
-            nullptr,
-            flags,
-            &requestedLevels[1],
-            1,
-            D3D11_SDK_VERSION,
-            &swapDesc,
-            &m_swapChain,
-            &m_device,
-            &featureLevel,
-            &m_context);
+        throw std::runtime_error("GetDC failed");
     }
 
-    ThrowIfFailed(hr, "D3D11CreateDeviceAndSwapChain");
-    m_context.As(&m_annotation);
-    CreateBackBufferAndDepth();
-    CreateCommonStates();
+    PIXELFORMATDESCRIPTOR pfd{};
+    pfd.nSize = sizeof(pfd);
+    pfd.nVersion = 1;
+    pfd.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
+    pfd.iPixelType = PFD_TYPE_RGBA;
+    pfd.cColorBits = 32;
+    pfd.cDepthBits = 24;
+    pfd.cStencilBits = 8;
+    pfd.iLayerType = PFD_MAIN_PLANE;
+
+    const int pixelFormat = ChoosePixelFormat(m_hdc, &pfd);
+    if (pixelFormat == 0 || !SetPixelFormat(m_hdc, pixelFormat, &pfd))
+    {
+        throw std::runtime_error("SetPixelFormat failed");
+    }
+
+    m_glrc = wglCreateContext(m_hdc);
+    if (!m_glrc || !wglMakeCurrent(m_hdc, m_glrc))
+    {
+        throw std::runtime_error("Create OpenGL context failed");
+    }
+    if (!LoadOpenGLFunctions())
+    {
+        throw std::runtime_error("OpenGL function loading failed");
+    }
+    if (wglSwapIntervalEXT)
+    {
+        wglSwapIntervalEXT(1);
+    }
+
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LEQUAL);
+    glDisable(GL_CULL_FACE);
+    glEnable(GL_TEXTURE_2D);
+    CreateSceneTarget();
 }
 
 void RenderDevice::Resize(UINT width, UINT height)
 {
-    if (!m_swapChain)
-    {
-        return;
-    }
-
     m_width = std::max<UINT>(1, width);
     m_height = std::max<UINT>(1, height);
-
-    m_context->OMSetRenderTargets(0, nullptr, nullptr);
-    m_backBufferRtv.Reset();
-    m_depthDsv.Reset();
-    m_depthSrv.Reset();
-    m_depthTexture.Reset();
-    m_sceneTarget = {};
-
-    ThrowIfFailed(m_swapChain->ResizeBuffers(0, m_width, m_height, DXGI_FORMAT_UNKNOWN, 0), "Resize swap chain buffers");
-    CreateBackBufferAndDepth();
+    if (IsInitialized())
+    {
+        CreateSceneTarget();
+    }
 }
 
 void RenderDevice::BeginScene(const float clearColor[4])
 {
-    ID3D11ShaderResourceView* nullSrvs[] = {nullptr};
-    m_context->PSSetShaderResources(0, 1, nullSrvs);
-    m_context->OMSetRenderTargets(1, m_sceneTarget.rtv.GetAddressOf(), m_depthDsv.Get());
-    m_context->ClearRenderTargetView(m_sceneTarget.rtv.Get(), clearColor);
-    m_context->ClearDepthStencilView(m_depthDsv.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, m_sceneTarget.framebuffer);
+    glEnable(GL_DEPTH_TEST);
+    glClearColor(clearColor[0], clearColor[1], clearColor[2], clearColor[3]);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+}
+
+void RenderDevice::BeginBloomTarget()
+{
+    BeginColorTarget(m_bloomTarget);
+}
+
+void RenderDevice::BeginBlurTargetA()
+{
+    BeginColorTarget(m_blurTargetA);
+}
+
+void RenderDevice::BeginBlurTargetB()
+{
+    BeginColorTarget(m_blurTargetB);
 }
 
 void RenderDevice::BeginBackBuffer(const float clearColor[4])
 {
-    m_context->OMSetRenderTargets(1, m_backBufferRtv.GetAddressOf(), nullptr);
-    m_context->ClearRenderTargetView(m_backBufferRtv.Get(), clearColor);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glDisable(GL_DEPTH_TEST);
+    glClearColor(clearColor[0], clearColor[1], clearColor[2], clearColor[3]);
+    glClear(GL_COLOR_BUFFER_BIT);
 }
 
 void RenderDevice::SetSceneViewport()
 {
-    D3D11_VIEWPORT viewport{};
-    viewport.Width = static_cast<float>(m_width);
-    viewport.Height = static_cast<float>(m_height);
-    viewport.MinDepth = 0.0f;
-    viewport.MaxDepth = 1.0f;
-    m_context->RSSetViewports(1, &viewport);
+    SetViewport(0.0f, 0.0f, static_cast<float>(m_width), static_cast<float>(m_height));
+}
+
+void RenderDevice::SetViewport(float x, float y, float width, float height)
+{
+    glViewport(
+        static_cast<GLint>(std::max(0.0f, x)),
+        static_cast<GLint>(std::max(0.0f, static_cast<float>(m_height) - y - height)),
+        static_cast<GLsizei>(std::max(1.0f, width)),
+        static_cast<GLsizei>(std::max(1.0f, height)));
 }
 
 void RenderDevice::SetWireframe(bool enabled)
 {
-    m_context->RSSetState(enabled ? m_wireRasterizer.Get() : m_solidRasterizer.Get());
+    glPolygonMode(GL_FRONT_AND_BACK, enabled ? GL_LINE : GL_FILL);
 }
 
 void RenderDevice::Present()
 {
-    m_swapChain->Present(1, 0);
+    SwapBuffers(m_hdc);
 }
 
-void RenderDevice::BeginEvent(const wchar_t* name)
+void RenderDevice::BeginEvent(const wchar_t*)
 {
-    if (m_annotation)
-    {
-        m_annotation->BeginEvent(name);
-    }
 }
 
 void RenderDevice::EndEvent()
 {
-    if (m_annotation)
-    {
-        m_annotation->EndEvent();
-    }
 }
 
 bool RenderDevice::CaptureBackBufferPng(const std::wstring& path)
 {
-    ComPtr<ID3D11Texture2D> backBuffer;
-    if (FAILED(m_swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer))))
+    std::vector<uint8_t> pixels(static_cast<size_t>(m_width) * m_height * 4);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glReadPixels(0, 0, static_cast<GLsizei>(m_width), static_cast<GLsizei>(m_height), GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+
+    std::vector<uint8_t> flipped(pixels.size());
+    const size_t rowSize = static_cast<size_t>(m_width) * 4;
+    for (UINT y = 0; y < m_height; ++y)
+    {
+        std::copy(
+            pixels.data() + static_cast<size_t>(y) * rowSize,
+            pixels.data() + static_cast<size_t>(y + 1) * rowSize,
+            flipped.data() + static_cast<size_t>(m_height - 1 - y) * rowSize);
+    }
+
+    Microsoft::WRL::ComPtr<IWICImagingFactory> factory;
+    if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory))))
     {
         return false;
     }
 
-    D3D11_TEXTURE2D_DESC desc{};
-    backBuffer->GetDesc(&desc);
-    desc.BindFlags = 0;
-    desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    desc.MiscFlags = 0;
-    desc.Usage = D3D11_USAGE_STAGING;
-
-    ComPtr<ID3D11Texture2D> staging;
-    if (FAILED(m_device->CreateTexture2D(&desc, nullptr, &staging)))
-    {
-        return false;
-    }
-
-    m_context->CopyResource(staging.Get(), backBuffer.Get());
-
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    if (FAILED(m_context->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped)))
-    {
-        return false;
-    }
-
-    ComPtr<IWICImagingFactory> factory;
-    HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory));
-    if (FAILED(hr))
-    {
-        m_context->Unmap(staging.Get(), 0);
-        return false;
-    }
-
-    ComPtr<IWICStream> stream;
-    ComPtr<IWICBitmapEncoder> encoder;
-    ComPtr<IWICBitmapFrameEncode> frame;
-    hr = factory->CreateStream(&stream);
+    Microsoft::WRL::ComPtr<IWICStream> stream;
+    Microsoft::WRL::ComPtr<IWICBitmapEncoder> encoder;
+    Microsoft::WRL::ComPtr<IWICBitmapFrameEncode> frame;
+    HRESULT hr = factory->CreateStream(&stream);
     if (SUCCEEDED(hr))
     {
         hr = stream->InitializeFromFilename(path.c_str(), GENERIC_WRITE);
@@ -205,16 +180,16 @@ bool RenderDevice::CaptureBackBufferPng(const std::wstring& path)
     }
     if (SUCCEEDED(hr))
     {
-        hr = frame->SetSize(desc.Width, desc.Height);
+        hr = frame->SetSize(m_width, m_height);
     }
-    WICPixelFormatGUID format = GUID_WICPixelFormat32bppBGRA;
+    WICPixelFormatGUID format = GUID_WICPixelFormat32bppRGBA;
     if (SUCCEEDED(hr))
     {
         hr = frame->SetPixelFormat(&format);
     }
     if (SUCCEEDED(hr))
     {
-        hr = frame->WritePixels(desc.Height, mapped.RowPitch, mapped.RowPitch * desc.Height, static_cast<BYTE*>(mapped.pData));
+        hr = frame->WritePixels(m_height, static_cast<UINT>(rowSize), static_cast<UINT>(flipped.size()), flipped.data());
     }
     if (SUCCEEDED(hr))
     {
@@ -224,74 +199,108 @@ bool RenderDevice::CaptureBackBufferPng(const std::wstring& path)
     {
         hr = encoder->Commit();
     }
-
-    m_context->Unmap(staging.Get(), 0);
     return SUCCEEDED(hr);
-}
-
-void RenderDevice::CreateBackBufferAndDepth()
-{
-    ComPtr<ID3D11Texture2D> backBuffer;
-    ThrowIfFailed(m_swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer)), "Get swap chain back buffer");
-    ThrowIfFailed(m_device->CreateRenderTargetView(backBuffer.Get(), nullptr, &m_backBufferRtv), "Create back buffer RTV");
-
-    D3D11_TEXTURE2D_DESC depthDesc{};
-    depthDesc.Width = m_width;
-    depthDesc.Height = m_height;
-    depthDesc.MipLevels = 1;
-    depthDesc.ArraySize = 1;
-    depthDesc.Format = DXGI_FORMAT_R24G8_TYPELESS;
-    depthDesc.SampleDesc.Count = 1;
-    depthDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
-
-    ThrowIfFailed(m_device->CreateTexture2D(&depthDesc, nullptr, &m_depthTexture), "Create depth texture");
-
-    D3D11_DEPTH_STENCIL_VIEW_DESC dsvDesc{};
-    dsvDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
-    dsvDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
-    ThrowIfFailed(m_device->CreateDepthStencilView(m_depthTexture.Get(), &dsvDesc, &m_depthDsv), "Create depth DSV");
-
-    D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc{};
-    srvDesc.Format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
-    srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-    srvDesc.Texture2D.MipLevels = 1;
-    ThrowIfFailed(m_device->CreateShaderResourceView(m_depthTexture.Get(), &srvDesc, &m_depthSrv), "Create depth SRV");
-    CreateSceneTarget();
 }
 
 void RenderDevice::CreateSceneTarget()
 {
-    D3D11_TEXTURE2D_DESC desc{};
-    desc.Width = m_width;
-    desc.Height = m_height;
-    desc.MipLevels = 1;
-    desc.ArraySize = 1;
-    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    desc.SampleDesc.Count = 1;
-    desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+    DestroySceneTarget();
 
-    ThrowIfFailed(m_device->CreateTexture2D(&desc, nullptr, &m_sceneTarget.texture), "Create scene render target texture");
-    ThrowIfFailed(m_device->CreateRenderTargetView(m_sceneTarget.texture.Get(), nullptr, &m_sceneTarget.rtv), "Create scene RTV");
-    ThrowIfFailed(m_device->CreateShaderResourceView(m_sceneTarget.texture.Get(), nullptr, &m_sceneTarget.srv), "Create scene SRV");
+    glGenFramebuffers(1, &m_sceneTarget.framebuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, m_sceneTarget.framebuffer);
+
+    glGenTextures(1, &m_sceneTarget.colorTexture);
+    glBindTexture(GL_TEXTURE_2D, m_sceneTarget.colorTexture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, static_cast<GLsizei>(m_width), static_cast<GLsizei>(m_height), 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_sceneTarget.colorTexture, 0);
+
+    glGenTextures(1, &m_sceneTarget.depthTexture);
+    glBindTexture(GL_TEXTURE_2D, m_sceneTarget.depthTexture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, static_cast<GLsizei>(m_width), static_cast<GLsizei>(m_height), 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, nullptr);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, m_sceneTarget.depthTexture, 0);
+
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+    {
+        throw std::runtime_error("OpenGL scene framebuffer is incomplete");
+    }
+
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    CreateColorTarget(m_bloomTarget);
+    CreateColorTarget(m_blurTargetA);
+    CreateColorTarget(m_blurTargetB);
 }
 
-void RenderDevice::CreateCommonStates()
+void RenderDevice::DestroySceneTarget()
 {
-    D3D11_SAMPLER_DESC samplerDesc{};
-    samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
-    samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
-    samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
-    samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
-    samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
-    ThrowIfFailed(m_device->CreateSamplerState(&samplerDesc, &m_linearSampler), "Create linear sampler");
+    if (m_sceneTarget.colorTexture != 0)
+    {
+        glDeleteTextures(1, &m_sceneTarget.colorTexture);
+    }
+    if (m_sceneTarget.depthTexture != 0)
+    {
+        glDeleteTextures(1, &m_sceneTarget.depthTexture);
+    }
+    if (m_sceneTarget.framebuffer != 0)
+    {
+        glDeleteFramebuffers(1, &m_sceneTarget.framebuffer);
+    }
+    m_sceneTarget = {};
+    DestroyColorTarget(m_bloomTarget);
+    DestroyColorTarget(m_blurTargetA);
+    DestroyColorTarget(m_blurTargetB);
+}
 
-    D3D11_RASTERIZER_DESC rasterDesc{};
-    rasterDesc.FillMode = D3D11_FILL_SOLID;
-    rasterDesc.CullMode = D3D11_CULL_BACK;
-    rasterDesc.DepthClipEnable = TRUE;
-    ThrowIfFailed(m_device->CreateRasterizerState(&rasterDesc, &m_solidRasterizer), "Create solid rasterizer");
+void RenderDevice::CreateColorTarget(RenderTarget& target)
+{
+    DestroyColorTarget(target);
+    glGenFramebuffers(1, &target.framebuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, target.framebuffer);
 
-    rasterDesc.FillMode = D3D11_FILL_WIREFRAME;
-    ThrowIfFailed(m_device->CreateRasterizerState(&rasterDesc, &m_wireRasterizer), "Create wire rasterizer");
+    glGenTextures(1, &target.colorTexture);
+    glBindTexture(GL_TEXTURE_2D, target.colorTexture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, static_cast<GLsizei>(m_width), static_cast<GLsizei>(m_height), 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, target.colorTexture, 0);
+
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+    {
+        throw std::runtime_error("OpenGL post-process framebuffer is incomplete");
+    }
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+void RenderDevice::DestroyColorTarget(RenderTarget& target)
+{
+    if (target.colorTexture != 0)
+    {
+        glDeleteTextures(1, &target.colorTexture);
+    }
+    if (target.framebuffer != 0)
+    {
+        glDeleteFramebuffers(1, &target.framebuffer);
+    }
+    target = {};
+}
+
+void RenderDevice::BeginColorTarget(const RenderTarget& target)
+{
+    glBindFramebuffer(GL_FRAMEBUFFER, target.framebuffer);
+    glDisable(GL_DEPTH_TEST);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
 }
 } // namespace YRender

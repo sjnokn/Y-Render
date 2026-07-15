@@ -44,11 +44,12 @@
       <PreprocessorDefinitions>WIN32;_WINDOWS;NOMINMAX;UNICODE;_UNICODE;_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <AdditionalDependencies>d3d11.lib;dxgi.lib;d3dcompiler.lib;windowscodecs.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>opengl32.lib;windowscodecs.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -58,12 +59,13 @@
       <PreprocessorDefinitions>WIN32;_WINDOWS;NOMINMAX;UNICODE;_UNICODE;NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <Optimization>MaxSpeed</Optimization>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <AdditionalDependencies>d3d11.lib;dxgi.lib;d3dcompiler.lib;windowscodecs.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>opengl32.lib;windowscodecs.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -73,9 +75,11 @@
     <ClCompile Include="src\Core\Log.cpp" />
     <ClCompile Include="src\Core\Platform.cpp" />
     <ClCompile Include="src\Core\ProjectConfig.cpp" />
+    <ClCompile Include="src\Editor\EditorPanel.cpp" />
     <ClCompile Include="src\Scene\Camera.cpp" />
     <ClCompile Include="src\Scene\Scene.cpp" />
     <ClCompile Include="src\Renderer\DebugOverlay.cpp" />
+    <ClCompile Include="src\Renderer\OpenGL.cpp" />
     <ClCompile Include="src\Renderer\RenderDevice.cpp" />
     <ClCompile Include="src\Renderer\RendererApp.cpp" />
     <ClCompile Include="src\YRender.cpp" />
@@ -83,7 +87,7 @@
     <ClCompile Include="external\imgui\imgui_draw.cpp" />
     <ClCompile Include="external\imgui\imgui_tables.cpp" />
     <ClCompile Include="external\imgui\imgui_widgets.cpp" />
-    <ClCompile Include="external\imgui\backends\imgui_impl_dx11.cpp" />
+    <ClCompile Include="external\imgui\backends\imgui_impl_opengl3.cpp" />
     <ClCompile Include="external\imgui\backends\imgui_impl_win32.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -93,8 +97,10 @@
     <ClInclude Include="src\Core\Log.h" />
     <ClInclude Include="src\Core\Platform.h" />
     <ClInclude Include="src\Core\ProjectConfig.h" />
+    <ClInclude Include="src\Editor\EditorPanel.h" />
     <ClInclude Include="src\Renderer\DebugOverlay.h" />
     <ClInclude Include="src\Renderer\FrameStats.h" />
+    <ClInclude Include="src\Renderer\OpenGL.h" />
     <ClInclude Include="src\Renderer\RenderDevice.h" />
     <ClInclude Include="src\Renderer\RendererApp.h" />
     <ClInclude Include="src\Scene\Camera.h" />
@@ -102,13 +108,15 @@
     <ClInclude Include="src\Scene\SceneTypes.h" />
     <ClInclude Include="external\imgui\imgui.h" />
     <ClInclude Include="external\imgui\imconfig.h" />
-    <ClInclude Include="external\imgui\backends\imgui_impl_dx11.h" />
+    <ClInclude Include="external\imgui\backends\imgui_impl_opengl3.h" />
     <ClInclude Include="external\imgui\backends\imgui_impl_win32.h" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="assets\shaders\Standard.hlsl" />
-    <None Include="assets\shaders\Lighting.hlsl" />
-    <None Include="assets\shaders\PostProcess.hlsl" />
+    <None Include="assets\shaders\Standard.vert" />
+    <None Include="assets\shaders\Standard.frag" />
+    <None Include="assets\shaders\PostProcess.vert" />
+    <None Include="assets\shaders\PostProcess.frag" />
+    <None Include="assets\models\character.glb" />
     <None Include="assets\models\sample.obj" />
     <None Include="config\y-render.ini" />
     <None Include="README.md" />

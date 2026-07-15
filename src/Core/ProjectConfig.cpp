@@ -71,11 +71,15 @@ ProjectConfig LoadProjectConfig(const std::wstring& path)
         }
         else if (key == "default_demo")
         {
-            config.defaultDemo = std::clamp(std::stoi(value), 0, 1);
+            config.defaultDemo = std::clamp(std::stoi(value), 0, 2);
         }
         else if (key == "show_debug_ui")
         {
             config.showDebugUi = ParseBool(value, config.showDebugUi);
+        }
+        else if (key == "character_model")
+        {
+            config.characterModel = Utf8ToWide(value);
         }
         else if (key == "asset_root")
         {
