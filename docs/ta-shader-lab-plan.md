@@ -31,6 +31,7 @@ The default preview should remain static. Time-based motion belongs inside speci
 | Toon Ramp + Rim lighting model | First stylized TA demo path in `Standard.frag` |
 | Dissolve + Noise Mask | World-space procedural noise clipping, layered burn edge, animated controls, and a reusable preset |
 | Blur + Bloom | Bright-pass extraction, separable blur, composite pass, and live threshold/strength controls |
+| Depth Fog + Outline | Distance-based fog, screen-space silhouette outline, and beginner-readable controls |
 | Corrected basic lighting | Uses an inverse-transpose normal matrix and keeps Blinn-Phong highlights separate from albedo |
 
 ## Day 1 Foundation Baseline
@@ -55,7 +56,7 @@ Each day is one complete small shader project. The next day starts only after th
 | 1 | Foundation + Toon/Rim | Finish the model showcase, Shader Lab, basic lighting, and Toon + Rim organization; remove confusing effect/lighting labels; keep the fresh showcase environment as presentation support | Stable OpenGL/GLSL baseline with model, material, lighting, camera, debug views, and two lighting demos |
 | 2 | Dissolve + Noise | Finish the core threshold mask with world-space noise, natural burn layers, thin bright edge, animation controls, and a clear Effects tab | A reusable Dissolve preset that works on the character and fallback mesh; this is the current day and its core is already working |
 | 3 | Blur + Bloom | Add bright-pass extraction and separable blur; connect Bloom to the dissolve edge and tune exposure so the edge is luminous rather than a flat neon stripe | Dissolve has a polished glow preset; Bloom becomes a shared post-process tool for later effects |
-| 4 | Depth Fog + Depth Outline | Linearize depth, add distance fog and a controllable depth outline; expose depth preview and outline controls | A complete fog/outline preset plus a reliable depth-debug view |
+| 4 | Depth Fog + Depth Outline | Linearize depth, add distance fog and a controllable depth outline; expose depth preview and outline controls | A complete fog/outline preset plus a reliable depth-debug view; this day is now complete |
 | 5 | Heat Haze + Refraction | Sample scene color, build a distortion mask, and add animated heat/water distortion with safe screen-edge handling | A complete refraction preset that can be switched off without changing the base material |
 | 6 | Normal Map + Specular Map | Add tangent data and real normal/specular texture sampling; provide clear material slots and a neutral fallback | A complete detail-lighting preset that visibly changes surface relief and highlights |
 | 7 | Hologram + Scanline | Add time-driven transparency/edge glow, scanlines, flicker, and a stable hologram blend mode | A complete hologram preset with readable controls and no dependency on the dissolve demo |

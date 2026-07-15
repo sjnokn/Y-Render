@@ -16,6 +16,7 @@ public:
     void BeginBloomTarget();
     void BeginBlurTargetA();
     void BeginBlurTargetB();
+    void BeginDepthPreviewTarget();
     void BeginBackBuffer(const float clearColor[4]);
     void SetSceneViewport();
     void SetViewport(float x, float y, float width, float height);
@@ -31,6 +32,7 @@ public:
     unsigned int BloomTexture() const { return m_bloomTarget.colorTexture; }
     unsigned int BlurTextureA() const { return m_blurTargetA.colorTexture; }
     unsigned int BlurTextureB() const { return m_blurTargetB.colorTexture; }
+    unsigned int DepthPreviewTexture() const { return m_depthPreviewTarget.colorTexture; }
 
     UINT Width() const { return m_width; }
     UINT Height() const { return m_height; }
@@ -51,5 +53,6 @@ private:
     RenderTarget m_bloomTarget;
     RenderTarget m_blurTargetA;
     RenderTarget m_blurTargetB;
+    RenderTarget m_depthPreviewTarget;
 };
 } // namespace YRender

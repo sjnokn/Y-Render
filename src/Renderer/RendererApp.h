@@ -47,11 +47,13 @@ private:
     void Render();
     void RenderSceneObjects();
     void RenderBloomPass();
+    void RenderDepthPreviewPass();
     void RenderPresentationPass();
     void RenderDebugUi();
     void RenderShowcaseOverlay();
     void RenderPostQuad(float mode, unsigned int inputTexture, unsigned int bloomTexture, float bloomStrength);
     bool ShouldBloom() const;
+    bool ShouldDepthEffects() const;
     void SetMat4(unsigned int program, const char* name, const DirectX::XMMATRIX& matrix) const;
 
     HWND m_hwnd = nullptr;
@@ -64,6 +66,15 @@ private:
     bool m_bloomEnabled = true;
     float m_bloomThreshold = 0.78f;
     float m_bloomStrength = 0.42f;
+    bool m_depthFogEnabled = true;
+    float m_depthFogStart = 3.5f;
+    float m_depthFogEnd = 14.0f;
+    float m_depthFogDensity = 0.38f;
+    DirectX::XMFLOAT4 m_depthFogColor{0.62f, 0.78f, 0.84f, 1.0f};
+    bool m_depthOutlineEnabled = true;
+    float m_depthOutlineWidth = 1.25f;
+    float m_depthOutlineStrength = 0.78f;
+    DirectX::XMFLOAT4 m_depthOutlineColor{0.08f, 0.18f, 0.24f, 1.0f};
     bool m_autoTurntable = true;
     bool m_captureScreenshotPending = false;
     bool m_hideShowcaseOverlay = false;

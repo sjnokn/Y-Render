@@ -29,7 +29,7 @@ namespace YRender
 namespace
 {
 constexpr wchar_t kWindowClassName[] = L"YRenderWindowClass";
-constexpr int kDemoCount = 3;
+constexpr int kDemoCount = 4;
 
 const char* ShowcaseEffectName(int demo)
 {
@@ -41,7 +41,11 @@ const char* ShowcaseEffectName(int demo)
     {
         return "卡通分层 + 边缘光";
     }
-    return "溶解 + 噪声";
+    if (demo == 2)
+    {
+        return "溶解 + 噪声";
+    }
+    return "深度雾 + 深度描边";
 }
 
 std::wstring ResolveAssetPath(const std::wstring& path)
@@ -750,7 +754,8 @@ void RendererApp::UpdateWindowTitle()
     if (m_scene.Objects().size() > 1)
     {
         const SceneObject& character = m_scene.Objects()[1];
-        state.demoIndex = character.material.surfaceEffect > 0 ? 2 : (character.material.lightingModel > 0 ? 1 : 0);
+        state.demoIndex = character.material.surfaceEffect == 1 ? 2 :
+            (character.material.surfaceEffect == 2 ? 3 : (character.material.lightingModel > 0 ? 1 : 0));
     }
     state.wireframe = m_wireframe;
     SetWindowTextW(m_hwnd, BuildDebugTitle(state).c_str());
@@ -768,7 +773,8 @@ void RendererApp::Render()
     const FLOAT studioClear[] = {0.72f, 0.88f, 0.88f, 1.0f};
     const FLOAT toonClear[] = {0.70f, 0.84f, 0.90f, 1.0f};
     const FLOAT dissolveClear[] = {0.70f, 0.88f, 0.80f, 1.0f};
-    const FLOAT* sceneClear = m_demo == 0 ? studioClear : (m_demo == 1 ? toonClear : dissolveClear);
+    const FLOAT depthClear[] = {0.72f, 0.86f, 0.92f, 1.0f};
+    const FLOAT* sceneClear = m_demo == 0 ? studioClear : (m_demo == 1 ? toonClear : (m_demo == 2 ? dissolveClear : depthClear));
     m_renderDevice.BeginEvent(L"Scene Pass");
     ++m_frameStats.passes;
     m_renderDevice.BeginScene(sceneClear);
@@ -782,6 +788,11 @@ void RendererApp::Render()
     if (ShouldBloom())
     {
         RenderBloomPass();
+    }
+
+    if (m_showDebugUi)
+    {
+        RenderDepthPreviewPass();
     }
 
     m_renderDevice.BeginEvent(L"Presentation Pass");
@@ -962,6 +973,22 @@ bool RendererApp::ShouldBloom() const
     return false;
 }
 
+bool RendererApp::ShouldDepthEffects() const
+{
+    if (!m_effectsEnabled || (!m_depthFogEnabled && !m_depthOutlineEnabled))
+    {
+        return false;
+    }
+    for (const SceneObject& object : m_scene.Objects())
+    {
+        if (object.material.surfaceEffect == 2)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 void RendererApp::RenderPostQuad(float mode, unsigned int inputTexture, unsigned int bloomTexture, float bloomStrength)
 {
     glUseProgram(m_postShader.program);
@@ -970,6 +997,18 @@ void RendererApp::RenderPostQuad(float mode, unsigned int inputTexture, unsigned
     glUniform2f(glGetUniformLocation(m_postShader.program, "uInvResolution"), 1.0f / static_cast<float>(m_renderDevice.Width()), 1.0f / static_cast<float>(m_renderDevice.Height()));
     glUniform1f(glGetUniformLocation(m_postShader.program, "uBloomThreshold"), m_bloomThreshold);
     glUniform1f(glGetUniformLocation(m_postShader.program, "uBloomStrength"), bloomStrength);
+    glUniform1f(glGetUniformLocation(m_postShader.program, "uDepthEffectsEnabled"), ShouldDepthEffects() ? 1.0f : 0.0f);
+    glUniform1f(glGetUniformLocation(m_postShader.program, "uDepthFogEnabled"), m_depthFogEnabled ? 1.0f : 0.0f);
+    glUniform1f(glGetUniformLocation(m_postShader.program, "uDepthFogStart"), m_depthFogStart);
+    glUniform1f(glGetUniformLocation(m_postShader.program, "uDepthFogEnd"), m_depthFogEnd);
+    glUniform1f(glGetUniformLocation(m_postShader.program, "uDepthFogDensity"), m_depthFogDensity);
+    glUniform4f(glGetUniformLocation(m_postShader.program, "uDepthFogColor"), m_depthFogColor.x, m_depthFogColor.y, m_depthFogColor.z, m_depthFogColor.w);
+    glUniform1f(glGetUniformLocation(m_postShader.program, "uDepthOutlineEnabled"), m_depthOutlineEnabled ? 1.0f : 0.0f);
+    glUniform1f(glGetUniformLocation(m_postShader.program, "uDepthOutlineWidth"), m_depthOutlineWidth);
+    glUniform1f(glGetUniformLocation(m_postShader.program, "uDepthOutlineStrength"), m_depthOutlineStrength);
+    glUniform4f(glGetUniformLocation(m_postShader.program, "uDepthOutlineColor"), m_depthOutlineColor.x, m_depthOutlineColor.y, m_depthOutlineColor.z, m_depthOutlineColor.w);
+    glUniform1f(glGetUniformLocation(m_postShader.program, "uNearPlane"), 0.05f);
+    glUniform1f(glGetUniformLocation(m_postShader.program, "uFarPlane"), 200.0f);
     glUniform1i(glGetUniformLocation(m_postShader.program, "uSceneColor"), 0);
     glUniform1i(glGetUniformLocation(m_postShader.program, "uSceneDepth"), 1);
     glUniform1i(glGetUniformLocation(m_postShader.program, "uBloomTexture"), 2);
@@ -1013,6 +1052,17 @@ void RendererApp::RenderBloomPass()
     m_renderDevice.EndEvent();
 }
 
+void RendererApp::RenderDepthPreviewPass()
+{
+    m_renderDevice.BeginEvent(L"Depth Preview");
+    ++m_frameStats.passes;
+    m_renderDevice.BeginDepthPreviewTarget();
+    m_renderDevice.SetSceneViewport();
+    m_renderDevice.SetWireframe(false);
+    RenderPostQuad(8.0f, m_renderDevice.SceneColorTexture(), 0, 0.0f);
+    m_renderDevice.EndEvent();
+}
+
 void RendererApp::RenderPresentationPass()
 {
     const FLOAT clear[] = {0.0f, 0.0f, 0.0f, 1.0f};
@@ -1043,12 +1093,22 @@ void RendererApp::RenderDebugUi()
             m_bloomEnabled,
             m_bloomThreshold,
             m_bloomStrength,
+            m_depthFogEnabled,
+            m_depthFogStart,
+            m_depthFogEnd,
+            m_depthFogDensity,
+            m_depthFogColor,
+            m_depthOutlineEnabled,
+            m_depthOutlineWidth,
+            m_depthOutlineStrength,
+            m_depthOutlineColor,
             m_autoTurntable,
             m_currentFps,
             m_renderDevice.Width(),
             m_renderDevice.Height(),
             m_renderDevice.SceneColorTexture(),
             m_renderDevice.DepthTexture(),
+            m_renderDevice.DepthPreviewTexture(),
             m_checkerTexture.id,
             m_shaderStatus,
             m_modelStatus,
@@ -1091,14 +1151,15 @@ void RendererApp::RenderShowcaseOverlay()
     if (m_scene.Objects().size() > 1)
     {
         const SceneObject& character = m_scene.Objects()[1];
-        currentEffect = character.material.surfaceEffect > 0 ? 2 : (character.material.lightingModel > 0 ? 1 : 0);
+        currentEffect = character.material.surfaceEffect == 1 ? 2 :
+            (character.material.surfaceEffect == 2 ? 3 : (character.material.lightingModel > 0 ? 1 : 0));
     }
     ImGui::TextColored(ImVec4(0.95f, 0.72f, 0.30f, 1.0f), "当前演示 %d/%d：%s", currentEffect + 1, kDemoCount, ShowcaseEffectName(currentEffect));
     ImGui::Text("演示状态：%s", m_effectsEnabled ? "开启" : "旁路");
     ImGui::Text("自动转台：%s", m_autoTurntable ? "开启" : "关闭");
     ImGui::Separator();
     ImGui::TextDisabled("拖动旋转  |  滚轮缩放  |  R 重置视角");
-    ImGui::TextDisabled("Tab/1/2/3 切换效果  |  Space 对比  |  T 转台  |  F2 实验面板");
+    ImGui::TextDisabled("Tab/1/2/3/4 切换效果  |  Space 对比  |  T 转台  |  F2 实验面板");
     ImGui::End();
 }
 

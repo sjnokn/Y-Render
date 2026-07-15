@@ -71,7 +71,7 @@ ProjectConfig LoadProjectConfig(const std::wstring& path)
         }
         else if (key == "default_demo")
         {
-            config.defaultDemo = std::clamp(std::stoi(value), 0, 2);
+            config.defaultDemo = std::clamp(std::stoi(value), 0, 3);
         }
         else if (key == "show_debug_ui")
         {

@@ -278,8 +278,8 @@ void EditorPanel::RenderToolbar(EditorPanelContext& context)
     ToolbarLabel(T("当前演示", "Demo"));
     ImGui::SetNextItemWidth(150.0f);
     int demo = context.demo;
-    const char* demosZh[] = {"基础光照", "卡通分层 + 边缘光", "溶解 + 噪声"};
-    const char* demosEn[] = {"Basic Lighting", "Toon Ramp + Rim", "Dissolve + Noise"};
+    const char* demosZh[] = {"基础光照", "卡通分层 + 边缘光", "溶解 + 噪声", "深度雾 + 深度描边"};
+    const char* demosEn[] = {"Basic Lighting", "Toon Ramp + Rim", "Dissolve + Noise", "Depth Fog + Outline"};
     const char** demos = m_language == UiLanguage::Chinese ? demosZh : demosEn;
     if (ImGui::Combo("##ScenePreset", &demo, demos, IM_ARRAYSIZE(demosZh)))
     {
@@ -296,8 +296,8 @@ void EditorPanel::RenderToolbar(EditorPanelContext& context)
         ImGui::SetTooltip(
             "%s",
             T(
-                "基础光照：普通材质的环境光、漫反射和高光。\n卡通分层 + 边缘光：把明暗分层，并增加角色轮廓亮边。",
-                "Basic Lighting: ambient, diffuse, and specular material lighting.\nToon Ramp + Rim: stepped lighting with a bright character outline."));
+                "基础光照：普通材质的环境光、漫反射和高光。\n卡通分层 + 边缘光：把明暗分层，并增加角色轮廓亮边。\n溶解 + 噪声：让模型按噪声分布逐渐消失。\n深度雾 + 深度描边：远处变淡，并用轮廓线分开前后层次。",
+                "Basic Lighting: ambient, diffuse, and specular material lighting.\nToon Ramp + Rim: stepped lighting with a bright character outline.\nDissolve + Noise: breaks the surface apart over time.\nDepth Fog + Outline: fades distant pixels and separates silhouettes."));
     }
 
     ToolbarLabel(T("语言", "Language"));
@@ -491,12 +491,12 @@ void EditorPanel::RenderInspector(EditorPanelContext& context)
         }
 
         const ImGuiTabItemFlags selectEffectsTab =
-            (object.material.surfaceEffect == 1 && ImGui::IsWindowAppearing()) ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
+            (object.material.surfaceEffect > 0 && ImGui::IsWindowAppearing()) ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
         if (ImGui::BeginTabItem(T("效果", "Effects"), nullptr, selectEffectsTab))
         {
             ImGui::SeparatorText(T("表面 / 材质效果", "Surface / Material Effects"));
-            const char* surfaceEffectsZh[] = {"无额外效果", "溶解 + 噪声"};
-            const char* surfaceEffectsEn[] = {"None", "Dissolve + Noise"};
+            const char* surfaceEffectsZh[] = {"无额外效果", "溶解 + 噪声", "深度雾 + 深度描边"};
+            const char* surfaceEffectsEn[] = {"None", "Dissolve + Noise", "Depth Fog + Outline"};
             const char** surfaceEffects = m_language == UiLanguage::Chinese ? surfaceEffectsZh : surfaceEffectsEn;
             if (ImGui::Combo(T("效果", "Effect"), &object.material.surfaceEffect, surfaceEffects, IM_ARRAYSIZE(surfaceEffectsZh)))
             {
@@ -530,6 +530,35 @@ void EditorPanel::RenderInspector(EditorPanelContext& context)
                 ImGui::TextWrapped("%s", T(
                     "这是一个表面溶解预设：噪声决定消失位置，边缘由暗色烧蚀层、彩色过渡和细亮芯组成。柔和光晕会让亮边自然扩散。",
                     "This surface dissolve preset uses noise for the breakup and a three-layer edge: dark crust, colored transition, and a thin hot core. A soft glow gently spreads the bright edge."));
+            }
+            else if (object.material.surfaceEffect == 2)
+            {
+                ImGui::SeparatorText(T("深度雾", "Depth Fog"));
+                ImGui::Checkbox(T("启用深度雾", "Enable Depth Fog"), &context.depthFogEnabled);
+                ImGui::SliderFloat(T("开始变淡距离", "Fog Start Distance"), &context.depthFogStart, 0.1f, 20.0f, "%.2f");
+                ImGui::SliderFloat(T("完全变淡距离", "Fog End Distance"), &context.depthFogEnd, 0.2f, 40.0f, "%.2f");
+                ImGui::SliderFloat(T("变淡程度", "Fog Density"), &context.depthFogDensity, 0.0f, 2.0f, "%.2f");
+                ImGui::ColorEdit4(T("雾的颜色", "Fog Color"), &context.depthFogColor.x);
+                ImGui::SeparatorText(T("深度描边", "Depth Outline"));
+                ImGui::Checkbox(T("启用深度描边", "Enable Depth Outline"), &context.depthOutlineEnabled);
+                ImGui::SliderFloat(T("描边宽度", "Outline Width"), &context.depthOutlineWidth, 0.25f, 4.0f, "%.2f");
+                ImGui::SliderFloat(T("描边强度", "Outline Strength"), &context.depthOutlineStrength, 0.0f, 1.0f, "%.2f");
+                ImGui::ColorEdit4(T("描边颜色", "Outline Color"), &context.depthOutlineColor.x);
+                if (ImGui::Button(T("重置深度效果", "Reset Depth Effect")))
+                {
+                    context.depthFogEnabled = true;
+                    context.depthFogStart = 3.5f;
+                    context.depthFogEnd = 14.0f;
+                    context.depthFogDensity = 0.38f;
+                    context.depthFogColor = DirectX::XMFLOAT4(0.62f, 0.78f, 0.84f, 1.0f);
+                    context.depthOutlineEnabled = true;
+                    context.depthOutlineWidth = 1.25f;
+                    context.depthOutlineStrength = 0.78f;
+                    context.depthOutlineColor = DirectX::XMFLOAT4(0.08f, 0.18f, 0.24f, 1.0f);
+                }
+                ImGui::TextWrapped("%s", T(
+                    "深度雾会让远处的物体慢慢接近背景颜色；深度描边会比较相邻像素的远近，在轮廓处加线。两者都属于画面效果，不会改变模型本身。",
+                    "Depth fog gently blends distant pixels toward the background. Depth outline compares nearby pixel distances and draws a silhouette edge. Both are image effects and do not change the model."));
             }
             else
             {
@@ -673,7 +702,7 @@ void EditorPanel::RenderDebugViews(EditorPanelContext& context)
             const ImVec2 previewSize(previewWidth, previewHeight);
             PreviewTexture(T("场景颜色", "Scene Color"), context.sceneColor, previewSize);
             ImGui::SameLine();
-            PreviewTexture(T("深度", "Depth"), context.sceneDepth, previewSize);
+            PreviewTexture(T("深度", "Depth"), context.depthPreview, previewSize);
             ImGui::SameLine();
             PreviewTexture(T("棋盘格 / 基础色", "Checker / Albedo"), context.checkerTexture, previewSize);
             ImGui::EndChild();

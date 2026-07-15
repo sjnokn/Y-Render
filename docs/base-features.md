@@ -40,6 +40,7 @@
 | Toon/Rim Demo | First stylized lighting model with live material controls | Done |
 | Dissolve/Noise Demo | World-space noise clipping, layered edge treatment, animated controls, and a reusable preset | Done; Bloom is now integrated |
 | Blur/Bloom Demo | Bright-pass extraction, two-pass blur, composite, and live threshold/strength controls | Done |
+| Depth Fog/Outline Demo | Distance fog and depth-based silhouette outline with live controls and a frozen preset | Done |
 | Showcase Mode | Full-viewport startup, compact HUD, orbit framing, turntable, and baseline comparison | Done |
 | Lighting Correctness | Inverse-transpose normal transform and albedo-independent Blinn-Phong specular | Done |
 | Verification | Debug/Release verify script | Done |

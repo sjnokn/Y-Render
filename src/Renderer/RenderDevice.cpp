@@ -72,6 +72,7 @@ void RenderDevice::Resize(UINT width, UINT height)
 void RenderDevice::BeginScene(const float clearColor[4])
 {
     glBindFramebuffer(GL_FRAMEBUFFER, m_sceneTarget.framebuffer);
+    glDrawBuffer(GL_COLOR_ATTACHMENT0);
     glEnable(GL_DEPTH_TEST);
     glClearColor(clearColor[0], clearColor[1], clearColor[2], clearColor[3]);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -90,6 +91,11 @@ void RenderDevice::BeginBlurTargetA()
 void RenderDevice::BeginBlurTargetB()
 {
     BeginColorTarget(m_blurTargetB);
+}
+
+void RenderDevice::BeginDepthPreviewTarget()
+{
+    BeginColorTarget(m_depthPreviewTarget);
 }
 
 void RenderDevice::BeginBackBuffer(const float clearColor[4])
@@ -238,6 +244,7 @@ void RenderDevice::CreateSceneTarget()
     CreateColorTarget(m_bloomTarget);
     CreateColorTarget(m_blurTargetA);
     CreateColorTarget(m_blurTargetB);
+    CreateColorTarget(m_depthPreviewTarget);
 }
 
 void RenderDevice::DestroySceneTarget()
@@ -258,6 +265,7 @@ void RenderDevice::DestroySceneTarget()
     DestroyColorTarget(m_bloomTarget);
     DestroyColorTarget(m_blurTargetA);
     DestroyColorTarget(m_blurTargetB);
+    DestroyColorTarget(m_depthPreviewTarget);
 }
 
 void RenderDevice::CreateColorTarget(RenderTarget& target)
@@ -299,6 +307,7 @@ void RenderDevice::DestroyColorTarget(RenderTarget& target)
 void RenderDevice::BeginColorTarget(const RenderTarget& target)
 {
     glBindFramebuffer(GL_FRAMEBUFFER, target.framebuffer);
+    glDrawBuffer(GL_COLOR_ATTACHMENT0);
     glDisable(GL_DEPTH_TEST);
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);

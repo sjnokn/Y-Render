@@ -15,6 +15,7 @@ Y-Render is a small OpenGL learning renderer focused on building a solid real-ti
 - Full-viewport Showcase Mode with auto-framed orbit camera and turntable
 - Studio Lighting and Toon + Rim demo presets with before/after comparison
 - Dissolve + Noise core effect with animated edge emission
+- Depth Fog + Outline effect with distance fading and silhouette separation
 - Demo switching and debug status in the window title
 - TA-focused ImGui shader lab with object selection, Inspector tabs, debug views, and shader reload status
 - Separate lighting-model and surface-effect controls in the Inspector
