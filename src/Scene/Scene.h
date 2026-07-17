@@ -12,7 +12,7 @@ public:
     void Clear();
     void Add(const SceneObject& object);
     void BuildDemo(int demoIndex, Mesh& characterMesh, Mesh& planeMesh, bool externalCharacterLoaded);
-    void Animate(float time, int demoIndex);
+    void Animate(float deltaSeconds, bool rotateCharacter);
 
     const std::vector<SceneObject>& Objects() const { return m_objects; }
     std::vector<SceneObject>& Objects() { return m_objects; }

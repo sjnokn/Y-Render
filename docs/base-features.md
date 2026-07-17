@@ -38,7 +38,7 @@
 | Logging | OutputDebugString and `logs/y-render.log` | Done |
 | GPU Markers | Render pass event hooks; native GPU markers are deferred for OpenGL | Partial |
 | Toon/Rim Demo | First stylized lighting model with live material controls | Done |
-| Dissolve/Noise Demo | World-space noise clipping, layered edge treatment, animated controls, and a reusable preset | Done; Bloom is now integrated |
+| Dissolve Effects Demo | Eight switchable masks/styles: basic noise, directional, local sphere, incineration/ash, FlowMap energy, pixelated, edge ash, and smoke | Done; Bloom and dynamic particles are integrated |
 | Blur/Bloom Demo | Bright-pass extraction, two-pass blur, composite, and live threshold/strength controls | Done |
 | Depth Fog/Outline Demo | Distance fog and depth-based silhouette outline with live controls and a frozen preset | Done |
 | Showcase Mode | Full-viewport startup, compact HUD, orbit framing, turntable, and baseline comparison | Done |

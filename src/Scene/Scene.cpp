@@ -95,9 +95,18 @@ void Scene::BuildDemo(int demoIndex, Mesh& characterMesh, Mesh& planeMesh, bool 
     Add(character);
 }
 
-void Scene::Animate(float deltaSeconds, int)
+void Scene::Animate(float deltaSeconds, bool rotateCharacter)
 {
-    if (m_objects.size() > 1)
+    for (SceneObject& object : m_objects)
+    {
+        Material& material = object.material;
+        if (material.surfaceEffect == 1 && material.dissolveAutoProgress && !material.dissolvePaused)
+        {
+            material.dissolvePlaybackTime += deltaSeconds;
+        }
+    }
+
+    if (rotateCharacter && m_objects.size() > 1)
     {
         SceneObject& character = m_objects[1];
         character.transform.rotation.y = std::fmod(character.transform.rotation.y + deltaSeconds * 0.32f, XM_2PI);

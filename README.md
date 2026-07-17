@@ -14,7 +14,8 @@ Y-Render is a small OpenGL learning renderer focused on building a solid real-ti
 - Scene render target and fullscreen presentation pass
 - Full-viewport Showcase Mode with auto-framed orbit camera and turntable
 - Studio Lighting and Toon + Rim demo presets with before/after comparison
-- Dissolve + Noise core effect with animated edge emission
+- Dissolve effect collection: basic noise, directional, local sphere, incineration/ash, FlowMap energy, pixelated, edge ash, and smoke
+- CPU/GPU dissolve-boundary particle layer for drifting ash and expanding smoke
 - Depth Fog + Outline effect with distance fading and silhouette separation
 - Demo switching and debug status in the window title
 - TA-focused ImGui shader lab with object selection, Inspector tabs, debug views, and shader reload status
@@ -40,7 +41,7 @@ The script locates Visual Studio through `vswhere`, builds `YRender.vcxproj`, an
 - Mouse wheel or `W/S`: zoom
 - `A/D` and `Q/E`: pan the orbit target
 - `R` / `Home`: reset and frame the character
-- `Tab` or `1/2/3`: switch demo
+- `Tab` or `1/2/3/4`: switch demo
 - `Space`: compare the preset effect with its baseline
 - `T`: toggle the automatic turntable
 - `F1`: toggle wireframe

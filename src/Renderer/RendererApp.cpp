@@ -106,6 +106,7 @@ int RendererApp::Run(HINSTANCE instance, int showCommand)
     catch (const std::exception& error)
     {
         ShutdownImGui();
+        LogError(std::string("Application startup failed: ") + error.what());
         const std::wstring message = Utf8ToWide(error.what());
         MessageBoxW(m_hwnd, message.c_str(), L"Y-Render Error", MB_ICONERROR | MB_OK);
         return -1;
@@ -514,6 +515,10 @@ void RendererApp::LoadAssets()
 {
     m_standardShader = m_resources.CreateStandardShader();
     m_postShader = m_resources.CreatePostShader();
+    m_dissolveParticleShader = m_resources.CreateDissolveParticleShader();
+    m_burnFragmentShader = m_resources.CreateBurnFragmentShader();
+    m_burnFragments.Initialize();
+    m_dissolveParticles.Initialize();
 
     m_planeMesh = CreatePlaneMesh();
 
@@ -575,10 +580,14 @@ void RendererApp::ReloadShaders()
 {
     ShaderProgram newStandardShader;
     ShaderProgram newPostShader;
+    ShaderProgram newDissolveParticleShader;
+    ShaderProgram newBurnFragmentShader;
     try
     {
         newStandardShader = m_resources.CreateStandardShader();
         newPostShader = m_resources.CreatePostShader();
+        newDissolveParticleShader = m_resources.CreateDissolveParticleShader();
+        newBurnFragmentShader = m_resources.CreateBurnFragmentShader();
         if (m_standardShader.program != 0)
         {
             glDeleteProgram(m_standardShader.program);
@@ -587,8 +596,18 @@ void RendererApp::ReloadShaders()
         {
             glDeleteProgram(m_postShader.program);
         }
+        if (m_dissolveParticleShader.program != 0)
+        {
+            glDeleteProgram(m_dissolveParticleShader.program);
+        }
+        if (m_burnFragmentShader.program != 0)
+        {
+            glDeleteProgram(m_burnFragmentShader.program);
+        }
         m_standardShader = newStandardShader;
         m_postShader = newPostShader;
+        m_dissolveParticleShader = newDissolveParticleShader;
+        m_burnFragmentShader = newBurnFragmentShader;
         m_shaderStatus = "Shaders reloaded successfully";
         LogInfo("Shaders reloaded");
     }
@@ -601,6 +620,14 @@ void RendererApp::ReloadShaders()
         if (newPostShader.program != 0)
         {
             glDeleteProgram(newPostShader.program);
+        }
+        if (newDissolveParticleShader.program != 0)
+        {
+            glDeleteProgram(newDissolveParticleShader.program);
+        }
+        if (newBurnFragmentShader.program != 0)
+        {
+            glDeleteProgram(newBurnFragmentShader.program);
         }
         m_shaderStatus = error.what();
         LogError(std::string("Shader reload failed: ") + error.what());
@@ -636,6 +663,8 @@ void RendererApp::CaptureScreenshotNow()
 
 void RendererApp::BuildScene()
 {
+    m_burnFragments.Reset();
+    m_dissolveParticles.Reset();
     m_scene.BuildDemo(m_demo, m_characterMesh, m_planeMesh, m_externalCharacterLoaded);
     if (m_scene.Objects().empty())
     {
@@ -738,10 +767,18 @@ void RendererApp::Update(float dt)
 
     const bool acceptCameraInput = (m_viewportInputCaptured || viewportHovered) && !io.WantTextInput;
     m_camera.Update(dt, m_input, acceptCameraInput, m_pendingLookDeltaX, m_pendingLookDeltaY, m_pendingWheelDelta);
-    if (m_autoTurntable && !m_showDebugUi)
+    m_scene.Animate(dt, m_autoTurntable && !m_showDebugUi);
+    const SceneObject* dissolveSource = nullptr;
+    for (const SceneObject& object : m_scene.Objects())
     {
-        m_scene.Animate(dt, m_demo);
+        if (object.mesh == &m_characterMesh)
+        {
+            dissolveSource = &object;
+            break;
+        }
     }
+    m_burnFragments.Update(dt, dissolveSource, m_effectsEnabled);
+    m_dissolveParticles.Update(dt, dissolveSource, m_effectsEnabled);
     m_pendingLookDeltaX = 0.0f;
     m_pendingLookDeltaY = 0.0f;
     m_pendingWheelDelta = 0.0f;
@@ -774,7 +811,17 @@ void RendererApp::Render()
     const FLOAT toonClear[] = {0.70f, 0.84f, 0.90f, 1.0f};
     const FLOAT dissolveClear[] = {0.70f, 0.88f, 0.80f, 1.0f};
     const FLOAT depthClear[] = {0.72f, 0.86f, 0.92f, 1.0f};
-    const FLOAT* sceneClear = m_demo == 0 ? studioClear : (m_demo == 1 ? toonClear : (m_demo == 2 ? dissolveClear : depthClear));
+    const FLOAT incinerationClear[] = {0.025f, 0.030f, 0.038f, 1.0f};
+    const bool incinerationActive = m_effectsEnabled && std::any_of(
+        m_scene.Objects().begin(),
+        m_scene.Objects().end(),
+        [](const SceneObject& object)
+        {
+            return object.material.surfaceEffect == 1 && object.material.dissolveMode == 3;
+        });
+    const FLOAT* sceneClear = incinerationActive
+        ? incinerationClear
+        : (m_demo == 0 ? studioClear : (m_demo == 1 ? toonClear : (m_demo == 2 ? dissolveClear : depthClear)));
     m_renderDevice.BeginEvent(L"Scene Pass");
     ++m_frameStats.passes;
     m_renderDevice.BeginScene(sceneClear);
@@ -783,6 +830,26 @@ void RendererApp::Render()
     m_renderDevice.SetWireframe(m_wireframe);
 
     RenderSceneObjects();
+    const float previewAspect = previewViewport.width / std::max(1.0f, previewViewport.height);
+    const int fragmentCount = m_burnFragments.Render(
+        m_burnFragmentShader,
+        CameraViewProjection(previewAspect),
+        m_camera.Position(),
+        m_time);
+    if (fragmentCount > 0)
+    {
+        ++m_frameStats.drawCalls;
+        m_frameStats.triangles += fragmentCount;
+    }
+    const int particleCount = m_dissolveParticles.Render(
+        m_dissolveParticleShader,
+        CameraViewProjection(previewAspect),
+        previewViewport.height,
+        m_time);
+    if (particleCount > 0)
+    {
+        ++m_frameStats.drawCalls;
+    }
     m_renderDevice.EndEvent();
 
     if (ShouldBloom())
@@ -823,6 +890,13 @@ void RendererApp::RenderSceneObjects()
     const ShaderLabViewport previewViewport = CurrentPreviewViewport();
     const float aspect = previewViewport.width / std::max(1.0f, previewViewport.height);
     const XMMATRIX viewProj = CameraViewProjection(aspect);
+    const bool incinerationActive = m_effectsEnabled && std::any_of(
+        m_scene.Objects().begin(),
+        m_scene.Objects().end(),
+        [](const SceneObject& sceneObject)
+        {
+            return sceneObject.material.surfaceEffect == 1 && sceneObject.material.dissolveMode == 3;
+        });
 
     for (const SceneObject& object : m_scene.Objects())
     {
@@ -839,8 +913,14 @@ void RendererApp::RenderSceneObjects()
         const XMFLOAT3& cameraPosition = m_camera.Position();
         glUniform3f(glGetUniformLocation(m_standardShader.program, "uCameraPosition"), cameraPosition.x, cameraPosition.y, cameraPosition.z);
         glUniform1f(glGetUniformLocation(m_standardShader.program, "uTime"), m_time);
-        glUniform4f(glGetUniformLocation(m_standardShader.program, "uBaseColor"), object.material.baseColor.x, object.material.baseColor.y, object.material.baseColor.z, object.material.baseColor.w);
-        glUniform4f(glGetUniformLocation(m_standardShader.program, "uAmbientColor"), object.material.ambientColor.x, object.material.ambientColor.y, object.material.ambientColor.z, object.material.ambientColor.w);
+        const XMFLOAT4 renderBaseColor = incinerationActive && object.mesh == &m_planeMesh
+            ? XMFLOAT4(0.055f, 0.060f, 0.070f, 1.0f)
+            : object.material.baseColor;
+        const XMFLOAT4 renderAmbientColor = incinerationActive && object.mesh == &m_planeMesh
+            ? XMFLOAT4(0.018f, 0.020f, 0.026f, 1.0f)
+            : object.material.ambientColor;
+        glUniform4f(glGetUniformLocation(m_standardShader.program, "uBaseColor"), renderBaseColor.x, renderBaseColor.y, renderBaseColor.z, renderBaseColor.w);
+        glUniform4f(glGetUniformLocation(m_standardShader.program, "uAmbientColor"), renderAmbientColor.x, renderAmbientColor.y, renderAmbientColor.z, renderAmbientColor.w);
         glUniform1f(glGetUniformLocation(m_standardShader.program, "uDiffuseIntensity"), object.material.diffuseIntensity);
         glUniform1f(glGetUniformLocation(m_standardShader.program, "uSpecularPower"), object.material.specularPower);
         glUniform1f(glGetUniformLocation(m_standardShader.program, "uSpecularIntensity"), object.material.specularIntensity);
@@ -867,7 +947,49 @@ void RendererApp::RenderSceneObjects()
         glUniform1f(glGetUniformLocation(m_standardShader.program, "uDissolveEdgeIntensity"), object.material.dissolveEdgeIntensity);
         glUniform1f(glGetUniformLocation(m_standardShader.program, "uDissolveProgressSpeed"), object.material.dissolveProgressSpeed);
         glUniform1f(glGetUniformLocation(m_standardShader.program, "uDissolveAutoProgress"), object.material.dissolveAutoProgress ? 1.0f : 0.0f);
+        glUniform1f(glGetUniformLocation(m_standardShader.program, "uDissolvePlaybackTime"), object.material.dissolvePlaybackTime);
         glUniform4f(glGetUniformLocation(m_standardShader.program, "uDissolveEdgeColor"), object.material.dissolveEdgeColor.x, object.material.dissolveEdgeColor.y, object.material.dissolveEdgeColor.z, object.material.dissolveEdgeColor.w);
+        glUniform4f(glGetUniformLocation(m_standardShader.program, "uDissolveSecondaryColor"), object.material.dissolveSecondaryColor.x, object.material.dissolveSecondaryColor.y, object.material.dissolveSecondaryColor.z, object.material.dissolveSecondaryColor.w);
+        glUniform1f(glGetUniformLocation(m_standardShader.program, "uDissolveMode"), static_cast<float>(object.material.dissolveMode));
+        glUniform3f(glGetUniformLocation(m_standardShader.program, "uDissolveBoundsMin"), object.mesh->boundsMin.x, object.mesh->boundsMin.y, object.mesh->boundsMin.z);
+        glUniform3f(glGetUniformLocation(m_standardShader.program, "uDissolveBoundsMax"), object.mesh->boundsMax.x, object.mesh->boundsMax.y, object.mesh->boundsMax.z);
+        glUniform3f(glGetUniformLocation(m_standardShader.program, "uDissolveDirection"), object.material.dissolveDirection.x, object.material.dissolveDirection.y, object.material.dissolveDirection.z);
+        glUniform3f(glGetUniformLocation(m_standardShader.program, "uDissolveCenter"), object.material.dissolveCenter.x, object.material.dissolveCenter.y, object.material.dissolveCenter.z);
+        glUniform1f(glGetUniformLocation(m_standardShader.program, "uDissolveNoiseInfluence"), object.material.dissolveNoiseInfluence);
+        glUniform1f(glGetUniformLocation(m_standardShader.program, "uDissolveFlowStrength"), object.material.dissolveFlowStrength);
+        glUniform1f(glGetUniformLocation(m_standardShader.program, "uDissolvePixelSize"), object.material.dissolvePixelSize);
+        XMVECTOR dissolveDirection = XMLoadFloat3(&object.material.dissolveDirection);
+        if (XMVectorGetX(XMVector3LengthSq(dissolveDirection)) < 0.000001f)
+        {
+            dissolveDirection = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+        }
+        dissolveDirection = XMVector3Normalize(dissolveDirection);
+        float dissolveProjectionMin = 0.0f;
+        float dissolveProjectionMax = 0.0f;
+        bool firstProjection = true;
+        for (int corner = 0; corner < 8; ++corner)
+        {
+            const XMFLOAT3 localCorner{
+                (corner & 1) != 0 ? object.mesh->boundsMax.x : object.mesh->boundsMin.x,
+                (corner & 2) != 0 ? object.mesh->boundsMax.y : object.mesh->boundsMin.y,
+                (corner & 4) != 0 ? object.mesh->boundsMax.z : object.mesh->boundsMin.z,
+            };
+            const XMVECTOR worldCorner = XMVector3TransformCoord(XMLoadFloat3(&localCorner), world);
+            const float projection = XMVectorGetX(XMVector3Dot(worldCorner, dissolveDirection));
+            if (firstProjection)
+            {
+                dissolveProjectionMin = projection;
+                dissolveProjectionMax = projection;
+                firstProjection = false;
+            }
+            else
+            {
+                dissolveProjectionMin = std::min(dissolveProjectionMin, projection);
+                dissolveProjectionMax = std::max(dissolveProjectionMax, projection);
+            }
+        }
+        glUniform1f(glGetUniformLocation(m_standardShader.program, "uDissolveProjectionMin"), dissolveProjectionMin);
+        glUniform1f(glGetUniformLocation(m_standardShader.program, "uDissolveProjectionMax"), dissolveProjectionMax);
         const auto& lights = m_scene.DirectionalLights();
         const int lightCount = static_cast<int>(std::min<size_t>(lights.size(), 4));
         glUniform1i(glGetUniformLocation(m_standardShader.program, "uLightCount"), lightCount);
@@ -997,6 +1119,14 @@ void RendererApp::RenderPostQuad(float mode, unsigned int inputTexture, unsigned
     glUniform2f(glGetUniformLocation(m_postShader.program, "uInvResolution"), 1.0f / static_cast<float>(m_renderDevice.Width()), 1.0f / static_cast<float>(m_renderDevice.Height()));
     glUniform1f(glGetUniformLocation(m_postShader.program, "uBloomThreshold"), m_bloomThreshold);
     glUniform1f(glGetUniformLocation(m_postShader.program, "uBloomStrength"), bloomStrength);
+    const bool incinerationActive = m_effectsEnabled && std::any_of(
+        m_scene.Objects().begin(),
+        m_scene.Objects().end(),
+        [](const SceneObject& object)
+        {
+            return object.material.surfaceEffect == 1 && object.material.dissolveMode == 3;
+        });
+    glUniform1f(glGetUniformLocation(m_postShader.program, "uDarkBackground"), incinerationActive ? 1.0f : 0.0f);
     glUniform1f(glGetUniformLocation(m_postShader.program, "uDepthEffectsEnabled"), ShouldDepthEffects() ? 1.0f : 0.0f);
     glUniform1f(glGetUniformLocation(m_postShader.program, "uDepthFogEnabled"), m_depthFogEnabled ? 1.0f : 0.0f);
     glUniform1f(glGetUniformLocation(m_postShader.program, "uDepthFogStart"), m_depthFogStart);

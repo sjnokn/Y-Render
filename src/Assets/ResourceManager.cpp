@@ -29,6 +29,20 @@ ShaderProgram ResourceManager::CreatePostShader()
     return CreateShaderProgram(FindAsset(L"assets\\shaders\\PostProcess.vert"), FindAsset(L"assets\\shaders\\PostProcess.frag"));
 }
 
+ShaderProgram ResourceManager::CreateDissolveParticleShader()
+{
+    return CreateShaderProgram(
+        FindAsset(L"assets\\shaders\\DissolveParticle.vert"),
+        FindAsset(L"assets\\shaders\\DissolveParticle.frag"));
+}
+
+ShaderProgram ResourceManager::CreateBurnFragmentShader()
+{
+    return CreateShaderProgram(
+        FindAsset(L"assets\\shaders\\BurnFragment.vert"),
+        FindAsset(L"assets\\shaders\\BurnFragment.frag"));
+}
+
 void ResourceManager::UploadMesh(Mesh& mesh)
 {
     if (mesh.vao != 0)
@@ -205,6 +219,7 @@ ShaderProgram ResourceManager::CreateShaderProgram(const std::wstring& vertexPat
     glBindAttribLocation(program, 1, "aNormal");
     glBindAttribLocation(program, 2, "aUV");
     glBindAttribLocation(program, 3, "aColor");
+    glBindAttribLocation(program, 4, "aBarycentric");
     glLinkProgram(program);
 
     GLint linked = GL_FALSE;

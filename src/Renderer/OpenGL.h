@@ -72,6 +72,12 @@
 #ifndef GL_STREAM_DRAW
 #define GL_STREAM_DRAW 0x88E0
 #endif
+#ifndef GL_PROGRAM_POINT_SIZE
+#define GL_PROGRAM_POINT_SIZE 0x8642
+#endif
+#ifndef GL_POINT_SPRITE
+#define GL_POINT_SPRITE 0x8861
+#endif
 
 namespace YRender
 {

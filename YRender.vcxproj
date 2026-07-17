@@ -78,7 +78,9 @@
     <ClCompile Include="src\Editor\EditorPanel.cpp" />
     <ClCompile Include="src\Scene\Camera.cpp" />
     <ClCompile Include="src\Scene\Scene.cpp" />
+    <ClCompile Include="src\Renderer\BurnFragmentSystem.cpp" />
     <ClCompile Include="src\Renderer\DebugOverlay.cpp" />
+    <ClCompile Include="src\Renderer\DissolveParticleSystem.cpp" />
     <ClCompile Include="src\Renderer\OpenGL.cpp" />
     <ClCompile Include="src\Renderer\RenderDevice.cpp" />
     <ClCompile Include="src\Renderer\RendererApp.cpp" />
@@ -98,7 +100,9 @@
     <ClInclude Include="src\Core\Platform.h" />
     <ClInclude Include="src\Core\ProjectConfig.h" />
     <ClInclude Include="src\Editor\EditorPanel.h" />
+    <ClInclude Include="src\Renderer\BurnFragmentSystem.h" />
     <ClInclude Include="src\Renderer\DebugOverlay.h" />
+    <ClInclude Include="src\Renderer\DissolveParticleSystem.h" />
     <ClInclude Include="src\Renderer\FrameStats.h" />
     <ClInclude Include="src\Renderer\OpenGL.h" />
     <ClInclude Include="src\Renderer\RenderDevice.h" />
@@ -116,12 +120,17 @@
     <None Include="assets\shaders\Standard.frag" />
     <None Include="assets\shaders\PostProcess.vert" />
     <None Include="assets\shaders\PostProcess.frag" />
+    <None Include="assets\shaders\BurnFragment.vert" />
+    <None Include="assets\shaders\BurnFragment.frag" />
+    <None Include="assets\shaders\DissolveParticle.vert" />
+    <None Include="assets\shaders\DissolveParticle.frag" />
     <None Include="assets\models\character.glb" />
     <None Include="assets\models\sample.obj" />
     <None Include="config\y-render.ini" />
     <None Include="README.md" />
     <None Include="docs\architecture.md" />
     <None Include="docs\base-features.md" />
+    <None Include="docs\dissolve-effects.md" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

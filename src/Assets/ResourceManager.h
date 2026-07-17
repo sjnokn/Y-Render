@@ -16,6 +16,8 @@ public:
 
     ShaderProgram CreateStandardShader();
     ShaderProgram CreatePostShader();
+    ShaderProgram CreateDissolveParticleShader();
+    ShaderProgram CreateBurnFragmentShader();
     void UploadMesh(Mesh& mesh);
     void UploadEmbeddedTextures(Mesh& mesh);
     Texture CreateCheckerTexture(unsigned int width, unsigned int height);

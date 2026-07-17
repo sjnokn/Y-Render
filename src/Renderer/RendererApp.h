@@ -4,7 +4,9 @@
 #include "Core/Input.h"
 #include "Core/ProjectConfig.h"
 #include "Editor/EditorPanel.h"
+#include "Renderer/BurnFragmentSystem.h"
 #include "Renderer/FrameStats.h"
+#include "Renderer/DissolveParticleSystem.h"
 #include "Renderer/RenderDevice.h"
 #include "Scene/Camera.h"
 #include "Scene/Scene.h"
@@ -105,6 +107,10 @@ private:
 
     ShaderProgram m_standardShader;
     ShaderProgram m_postShader;
+    ShaderProgram m_dissolveParticleShader;
+    ShaderProgram m_burnFragmentShader;
+    BurnFragmentSystem m_burnFragments;
+    DissolveParticleSystem m_dissolveParticles;
     Texture m_checkerTexture;
     Mesh m_postQuadMesh;
 

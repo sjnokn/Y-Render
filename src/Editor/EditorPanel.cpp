@@ -495,8 +495,8 @@ void EditorPanel::RenderInspector(EditorPanelContext& context)
         if (ImGui::BeginTabItem(T("效果", "Effects"), nullptr, selectEffectsTab))
         {
             ImGui::SeparatorText(T("表面 / 材质效果", "Surface / Material Effects"));
-            const char* surfaceEffectsZh[] = {"无额外效果", "溶解 + 噪声", "深度雾 + 深度描边"};
-            const char* surfaceEffectsEn[] = {"None", "Dissolve + Noise", "Depth Fog + Outline"};
+            const char* surfaceEffectsZh[] = {"无额外效果", "溶解效果", "深度雾 + 深度描边"};
+            const char* surfaceEffectsEn[] = {"None", "Dissolve Effects", "Depth Fog + Outline"};
             const char** surfaceEffects = m_language == UiLanguage::Chinese ? surfaceEffectsZh : surfaceEffectsEn;
             if (ImGui::Combo(T("效果", "Effect"), &object.material.surfaceEffect, surfaceEffects, IM_ARRAYSIZE(surfaceEffectsZh)))
             {
@@ -514,22 +514,118 @@ void EditorPanel::RenderInspector(EditorPanelContext& context)
 
             if (object.material.surfaceEffect == 1)
             {
-                ImGui::SeparatorText(T("溶解 / 噪声", "Dissolve / Noise"));
+                const char* dissolveModesZh[] = {
+                    "基础噪声（默认）",
+                    "高度 / 定向",
+                    "局部球形",
+                    "焚烧 / 灰烬",
+                    "FlowMap 能量",
+                    "像素化消散",
+                    "边缘粒子 / 灰烬",
+                    "烟雾消散",
+                };
+                const char* dissolveModesEn[] = {
+                    "Basic Noise (Default)",
+                    "Height / Directional",
+                    "Local Sphere",
+                    "Incineration / Ash",
+                    "FlowMap Energy",
+                    "Pixelated",
+                    "Edge Particles / Ash",
+                    "Smoke",
+                };
+                const char** dissolveModes = m_language == UiLanguage::Chinese ? dissolveModesZh : dissolveModesEn;
+                ImGui::SeparatorText(T("溶解效果", "Dissolve Effect"));
+                if (ImGui::Combo(
+                        T("类型", "Type"),
+                        &object.material.dissolveMode,
+                        dissolveModes,
+                        IM_ARRAYSIZE(dissolveModesZh)))
+                {
+                    ApplyDissolvePreset(object.material, object.material.dissolveMode);
+                }
                 ImGui::SliderFloat(T("溶解进度", "Dissolve Amount"), &object.material.dissolveAmount, 0.0f, 1.0f, "%.2f");
                 ImGui::SliderFloat(T("噪声尺度", "Noise Scale"), &object.material.dissolveNoiseScale, 0.1f, 12.0f, "%.2f");
                 ImGui::SliderFloat(T("边缘宽度", "Edge Width"), &object.material.dissolveEdgeWidth, 0.001f, 0.5f, "%.3f");
                 ImGui::ColorEdit4(T("边缘颜色", "Edge Color"), &object.material.dissolveEdgeColor.x);
+                ImGui::ColorEdit4(T("次级边缘颜色", "Secondary Edge Color"), &object.material.dissolveSecondaryColor.x);
                 ImGui::SliderFloat(T("边缘亮度", "Edge Intensity"), &object.material.dissolveEdgeIntensity, 0.0f, 8.0f, "%.2f");
                 ImGui::SliderFloat(T("噪声动画速度", "Noise Speed"), &object.material.dissolveSpeed, -1.0f, 1.0f, "%.2f");
-                ImGui::Checkbox(T("自动循环溶解", "Auto Progress"), &object.material.dissolveAutoProgress);
-                ImGui::SliderFloat(T("溶解循环速度", "Progress Speed"), &object.material.dissolveProgressSpeed, 0.02f, 1.0f, "%.2f");
-                if (ImGui::Button(T("重置溶解参数", "Reset Dissolve Parameters")))
+
+                if (object.material.dissolveMode == 1 ||
+                    object.material.dissolveMode == 3 ||
+                    object.material.dissolveMode == 5 ||
+                    object.material.dissolveMode == 6 ||
+                    object.material.dissolveMode == 7)
                 {
-                    ApplyDissolvePreset(object.material);
+                    ImGui::DragFloat3(T("溶解方向", "Dissolve Direction"), &object.material.dissolveDirection.x, 0.01f, -1.0f, 1.0f, "%.2f");
+                    if (ImGui::Button(T("归一化溶解方向", "Normalize Dissolve Direction")))
+                    {
+                        NormalizeDirection(object.material.dissolveDirection);
+                    }
+                    ImGui::SliderFloat(T("边界噪声扰动", "Boundary Noise"), &object.material.dissolveNoiseInfluence, 0.0f, 0.5f, "%.2f");
+                }
+                else if (object.material.dissolveMode == 2)
+                {
+                    ImGui::SliderFloat3(T("球心（模型内）", "Sphere Center (Local)"), &object.material.dissolveCenter.x, 0.0f, 1.0f, "%.2f");
+                    ImGui::SliderFloat(T("球面噪声扰动", "Sphere Noise"), &object.material.dissolveNoiseInfluence, 0.0f, 0.5f, "%.2f");
+                }
+                else if (object.material.dissolveMode == 4)
+                {
+                    ImGui::SliderFloat(T("流动扭曲", "Flow Distortion"), &object.material.dissolveFlowStrength, 0.0f, 1.5f, "%.2f");
+                }
+                if (object.material.dissolveMode == 5)
+                {
+                    ImGui::SliderFloat(T("世界像素块大小", "World Pixel Block Size"), &object.material.dissolvePixelSize, 0.012f, 0.16f, "%.3f");
+                }
+
+                if (object.material.dissolveMode == 3 ||
+                    object.material.dissolveMode == 6 ||
+                    object.material.dissolveMode == 7)
+                {
+                    ImGui::SeparatorText(T("动态粒子层", "Dynamic Particle Layer"));
+                    ImGui::SliderFloat(T("粒子发射率", "Particle Rate"), &object.material.dissolveParticleRate, 0.0f, 220.0f, "%.0f");
+                    ImGui::SliderFloat(T("粒子大小", "Particle Size"), &object.material.dissolveParticleSize, 0.01f, 0.35f, "%.3f");
+                    ImGui::SliderFloat(T("粒子寿命", "Particle Lifetime"), &object.material.dissolveParticleLifetime, 0.2f, 5.0f, "%.2f");
+                    ImGui::DragFloat3(T("粒子风向", "Particle Wind"), &object.material.dissolveParticleWind.x, 0.01f, -1.5f, 1.5f, "%.2f");
+                }
+
+                if (ImGui::Checkbox(T("自动循环溶解", "Auto Progress"), &object.material.dissolveAutoProgress) &&
+                    !object.material.dissolveAutoProgress)
+                {
+                    object.material.dissolvePaused = false;
+                }
+                if (object.material.dissolveAutoProgress)
+                {
+                    ImGui::SameLine();
+                    if (ImGui::Button(object.material.dissolvePaused ? T("继续", "Resume") : T("暂停", "Pause")))
+                    {
+                        object.material.dissolvePaused = !object.material.dissolvePaused;
+                    }
+                    if (ImGui::IsItemHovered())
+                    {
+                        ImGui::SetTooltip("%s", T(
+                            "冻结当前溶解画面；继续后会从相同位置接着播放。",
+                            "Freeze the current dissolve frame. Resume continues from the same position."));
+                    }
+                    const float cycle = std::fmod(
+                        object.material.dissolvePlaybackTime * std::max(object.material.dissolveProgressSpeed, 0.01f),
+                        1.0f);
+                    const float currentProgress = cycle < 0.5f ? cycle * 2.0f : 2.0f - cycle * 2.0f;
+                    ImGui::Text(
+                        "%s: %.2f%s",
+                        T("当前自动进度", "Current Auto Progress"),
+                        currentProgress,
+                        object.material.dissolvePaused ? T("（已暂停）", " (Paused)") : "");
+                }
+                ImGui::SliderFloat(T("溶解循环速度", "Progress Speed"), &object.material.dissolveProgressSpeed, 0.02f, 1.0f, "%.2f");
+                if (ImGui::Button(T("重置当前溶解", "Reset Current Dissolve")))
+                {
+                    ApplyDissolvePreset(object.material, object.material.dissolveMode);
                 }
                 ImGui::TextWrapped("%s", T(
-                    "这是一个表面溶解预设：噪声决定消失位置，边缘由暗色烧蚀层、彩色过渡和细亮芯组成。柔和光晕会让亮边自然扩散。",
-                    "This surface dissolve preset uses noise for the breakup and a three-layer edge: dark crust, colored transition, and a thin hot core. A soft glow gently spreads the bright edge."));
+                    "焚烧模式让模型裁切、火焰和灰烬共享同一个噪声燃烧边界。炭屑先附着在表面，再以模型局部空间的独立速度和旋转脱离，因此转台旋转时也不会与模型错位。",
+                    "Incineration uses one noisy burn field for model clipping, flames, and ash. Charcoal crumbs begin attached to the surface, then detach with independent local-space velocity and rotation, so they remain aligned while the preview turntable rotates."));
             }
             else if (object.material.surfaceEffect == 2)
             {

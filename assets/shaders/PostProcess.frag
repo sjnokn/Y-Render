@@ -5,6 +5,7 @@ uniform float uTime;
 uniform vec2 uInvResolution;
 uniform float uBloomThreshold;
 uniform float uBloomStrength;
+uniform float uDarkBackground;
 uniform float uDepthEffectsEnabled;
 uniform float uDepthFogEnabled;
 uniform float uDepthFogStart;
@@ -27,6 +28,16 @@ out vec4 OutColor;
 
 vec3 FreshBackground(vec2 uv)
 {
+    if (uDarkBackground > 0.5)
+    {
+        vec3 topColor = vec3(0.012, 0.016, 0.023);
+        vec3 bottomColor = vec3(0.045, 0.037, 0.034);
+        float vertical = smoothstep(0.0, 1.0, uv.y);
+        vec3 background = mix(bottomColor, topColor, vertical);
+        vec2 emberOffset = (uv - vec2(0.48, 0.36)) * vec2(0.90, 1.35);
+        float emberGlow = exp(-dot(emberOffset, emberOffset) * 4.8);
+        return background + vec3(0.030, 0.010, 0.003) * emberGlow;
+    }
     vec3 topColor = vec3(0.46, 0.76, 0.84);
     vec3 bottomColor = vec3(0.92, 0.97, 0.94);
     float vertical = smoothstep(0.0, 1.0, uv.y);
