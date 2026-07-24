@@ -11,9 +11,13 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #endif
 
-// UTF-8 filesystem paths (project compiles with /utf-8) and human-readable errors.
+// UTF-8 filesystem paths (project compiles with /utf-8) for both read and write,
+// plus human-readable load errors.
 #ifndef STBI_WINDOWS_UTF8
 #define STBI_WINDOWS_UTF8
+#endif
+#ifndef STBIW_WINDOWS_UTF8
+#define STBIW_WINDOWS_UTF8
 #endif
 #ifndef STBI_FAILURE_USERMSG
 #define STBI_FAILURE_USERMSG

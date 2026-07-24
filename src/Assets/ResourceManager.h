@@ -2,8 +2,6 @@
 
 #include "Scene/SceneTypes.h"
 
-#include <wincodec.h>
-
 #include <cstddef>
 #include <string>
 

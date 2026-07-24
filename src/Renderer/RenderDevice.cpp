@@ -6,8 +6,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <vector>
-#include <wincodec.h>
-#include <wrl/client.h>
+#include <stb_image_write.h>
 
 namespace YRender
 {
@@ -154,58 +153,18 @@ bool RenderDevice::CaptureBackBufferPng(const std::wstring& path)
             flipped.data() + static_cast<size_t>(m_height - 1 - y) * rowSize);
     }
 
-    Microsoft::WRL::ComPtr<IWICImagingFactory> factory;
-    if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory))))
-    {
-        return false;
-    }
-
-    Microsoft::WRL::ComPtr<IWICStream> stream;
-    Microsoft::WRL::ComPtr<IWICBitmapEncoder> encoder;
-    Microsoft::WRL::ComPtr<IWICBitmapFrameEncode> frame;
-    HRESULT hr = factory->CreateStream(&stream);
-    if (SUCCEEDED(hr))
-    {
-        hr = stream->InitializeFromFilename(path.c_str(), GENERIC_WRITE);
-    }
-    if (SUCCEEDED(hr))
-    {
-        hr = factory->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder);
-    }
-    if (SUCCEEDED(hr))
-    {
-        hr = encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache);
-    }
-    if (SUCCEEDED(hr))
-    {
-        hr = encoder->CreateNewFrame(&frame, nullptr);
-    }
-    if (SUCCEEDED(hr))
-    {
-        hr = frame->Initialize(nullptr);
-    }
-    if (SUCCEEDED(hr))
-    {
-        hr = frame->SetSize(m_width, m_height);
-    }
-    WICPixelFormatGUID format = GUID_WICPixelFormat32bppRGBA;
-    if (SUCCEEDED(hr))
-    {
-        hr = frame->SetPixelFormat(&format);
-    }
-    if (SUCCEEDED(hr))
-    {
-        hr = frame->WritePixels(m_height, static_cast<UINT>(rowSize), static_cast<UINT>(flipped.size()), flipped.data());
-    }
-    if (SUCCEEDED(hr))
-    {
-        hr = frame->Commit();
-    }
-    if (SUCCEEDED(hr))
-    {
-        hr = encoder->Commit();
-    }
-    return SUCCEEDED(hr);
+    // Encode the Y-flipped RGBA buffer to PNG. stbi_write_png expects the first row
+    // to be the top of the image, which is exactly what `flipped` holds.
+    const std::string utf8Path = WideToUtf8(path);
+    const int stride = static_cast<int>(m_width) * 4;
+    const int ok = stbi_write_png(
+        utf8Path.c_str(),
+        static_cast<int>(m_width),
+        static_cast<int>(m_height),
+        4,
+        flipped.data(),
+        stride);
+    return ok != 0;
 }
 
 void RenderDevice::CreateSceneTarget()

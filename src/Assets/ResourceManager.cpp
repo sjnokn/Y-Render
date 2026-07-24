@@ -11,12 +11,16 @@
 #include <sstream>
 #include <stdexcept>
 #include <vector>
-#include <wrl/client.h>
+#include <stb_image.h>
 
 namespace YRender
 {
 void ResourceManager::Initialize()
 {
+    // stb_image returns images top-down (first row = top), matching the GL texture
+    // origin used by glTexImage2D below. Pin it so a stray flip toggle elsewhere
+    // cannot silently invert textures.
+    stbi_set_flip_vertically_on_load(false);
 }
 
 ShaderProgram ResourceManager::CreateStandardShader()
@@ -92,7 +96,7 @@ void ResourceManager::UploadEmbeddedTextures(Mesh& mesh)
             image.width = texture.width;
             image.height = texture.height;
         }
-        catch (...)
+        catch (const std::exception&)
         {
             image.texture = 0;
             image.width = 0;
@@ -151,27 +155,19 @@ Texture ResourceManager::CreateTextureFromRgba(unsigned int width, unsigned int 
 
 Texture ResourceManager::LoadTextureWic(const std::wstring& path)
 {
-    Microsoft::WRL::ComPtr<IWICImagingFactory> factory;
-    ThrowIfFailed(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory)), "Create WIC factory");
+    const std::string utf8Path = WideToUtf8(path);
+    int width = 0;
+    int height = 0;
+    int channels = 0;
+    stbi_uc* pixels = stbi_load(utf8Path.c_str(), &width, &height, &channels, STBI_rgb_alpha);
+    if (!pixels)
+    {
+        throw std::runtime_error("Failed to load texture '" + utf8Path + "': " + stbi_failure_reason());
+    }
 
-    Microsoft::WRL::ComPtr<IWICBitmapDecoder> decoder;
-    ThrowIfFailed(factory->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnLoad, &decoder), "Create WIC decoder");
-
-    Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> frame;
-    ThrowIfFailed(decoder->GetFrame(0, &frame), "Get WIC frame");
-
-    Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
-    ThrowIfFailed(factory->CreateFormatConverter(&converter), "Create WIC converter");
-    ThrowIfFailed(converter->Initialize(frame.Get(), GUID_WICPixelFormat32bppRGBA, WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom), "Initialize WIC converter");
-
-    unsigned int width = 0;
-    unsigned int height = 0;
-    ThrowIfFailed(converter->GetSize(&width, &height), "Get WIC texture size");
-
-    std::vector<uint8_t> pixels(static_cast<size_t>(width) * height * 4);
-    ThrowIfFailed(converter->CopyPixels(nullptr, width * 4, static_cast<unsigned int>(pixels.size()), pixels.data()), "Copy WIC pixels");
-
-    return CreateTextureFromRgba(width, height, pixels.data(), width * 4);
+    Texture texture = CreateTextureFromRgba(static_cast<unsigned int>(width), static_cast<unsigned int>(height), pixels, static_cast<unsigned int>(width) * 4);
+    stbi_image_free(pixels);
+    return texture;
 }
 
 Texture ResourceManager::LoadTextureWicFromMemory(const void* data, size_t size)
@@ -181,31 +177,18 @@ Texture ResourceManager::LoadTextureWicFromMemory(const void* data, size_t size)
         throw std::runtime_error("Empty embedded texture");
     }
 
-    Microsoft::WRL::ComPtr<IWICImagingFactory> factory;
-    ThrowIfFailed(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory)), "Create WIC factory");
+    int width = 0;
+    int height = 0;
+    int channels = 0;
+    stbi_uc* pixels = stbi_load_from_memory(static_cast<const stbi_uc*>(data), static_cast<int>(size), &width, &height, &channels, STBI_rgb_alpha);
+    if (!pixels)
+    {
+        throw std::runtime_error(std::string("Failed to decode embedded texture: ") + stbi_failure_reason());
+    }
 
-    Microsoft::WRL::ComPtr<IWICStream> stream;
-    ThrowIfFailed(factory->CreateStream(&stream), "Create WIC memory stream");
-    ThrowIfFailed(stream->InitializeFromMemory(static_cast<BYTE*>(const_cast<void*>(data)), static_cast<DWORD>(size)), "Initialize WIC memory stream");
-
-    Microsoft::WRL::ComPtr<IWICBitmapDecoder> decoder;
-    ThrowIfFailed(factory->CreateDecoderFromStream(stream.Get(), nullptr, WICDecodeMetadataCacheOnLoad, &decoder), "Create WIC memory decoder");
-
-    Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> frame;
-    ThrowIfFailed(decoder->GetFrame(0, &frame), "Get WIC memory frame");
-
-    Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
-    ThrowIfFailed(factory->CreateFormatConverter(&converter), "Create WIC memory converter");
-    ThrowIfFailed(converter->Initialize(frame.Get(), GUID_WICPixelFormat32bppRGBA, WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom), "Initialize WIC memory converter");
-
-    unsigned int width = 0;
-    unsigned int height = 0;
-    ThrowIfFailed(converter->GetSize(&width, &height), "Get embedded texture size");
-
-    std::vector<uint8_t> pixels(static_cast<size_t>(width) * height * 4);
-    ThrowIfFailed(converter->CopyPixels(nullptr, width * 4, static_cast<unsigned int>(pixels.size()), pixels.data()), "Copy embedded texture pixels");
-
-    return CreateTextureFromRgba(width, height, pixels.data(), width * 4);
+    Texture texture = CreateTextureFromRgba(static_cast<unsigned int>(width), static_cast<unsigned int>(height), pixels, static_cast<unsigned int>(width) * 4);
+    stbi_image_free(pixels);
+    return texture;
 }
 
 ShaderProgram ResourceManager::CreateShaderProgram(const std::wstring& vertexPath, const std::wstring& fragmentPath)
