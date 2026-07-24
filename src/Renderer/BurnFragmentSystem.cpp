@@ -1,6 +1,8 @@
+#include <glad/glad.h>
+
 #include "Renderer/BurnFragmentSystem.h"
 
-#include "Renderer/OpenGL.h"
+#include "Renderer/IncinerationField.h"
 
 #include <algorithm>
 #include <cmath>
@@ -39,37 +41,6 @@ float Hash(float x, float y)
 float Hash3(const XMFLOAT3& value)
 {
     return Fract(std::sin(value.x * 127.1f + value.y * 311.7f + value.z * 74.7f) * 43758.5453f);
-}
-
-float ValueNoise(float x, float y)
-{
-    const float ix = std::floor(x);
-    const float iy = std::floor(y);
-    float fx = Fract(x);
-    float fy = Fract(y);
-    fx = fx * fx * (3.0f - 2.0f * fx);
-    fy = fy * fy * (3.0f - 2.0f * fy);
-    const float a = Hash(ix, iy);
-    const float b = Hash(ix + 1.0f, iy);
-    const float c = Hash(ix, iy + 1.0f);
-    const float d = Hash(ix + 1.0f, iy + 1.0f);
-    const float lower = a + (b - a) * fx;
-    const float upper = c + (d - c) * fx;
-    return lower + (upper - lower) * fy;
-}
-
-float FractalNoise(float x, float y)
-{
-    float result = 0.0f;
-    float amplitude = 0.5f;
-    for (int octave = 0; octave < 4; ++octave)
-    {
-        result += ValueNoise(x, y) * amplitude;
-        x = x * 2.0f + 17.0f;
-        y = y * 2.0f + 29.0f;
-        amplitude *= 0.5f;
-    }
-    return Saturate(result);
 }
 
 XMFLOAT3 Add(const XMFLOAT3& a, const XMFLOAT3& b)
@@ -254,20 +225,9 @@ void BurnFragmentSystem::RebuildSource(const Mesh& mesh, float noiseScale)
                 Hash(triangle.seed * 59.0f, 2.0f) * 2.0f - 1.0f),
             XMFLOAT3(0.0f, 1.0f, 0.0f));
 
-        const float noiseXY = FractalNoise(
-            triangle.center.x * resolvedNoiseScale,
-            triangle.center.y * resolvedNoiseScale);
-        const float noiseXZ = FractalNoise(
-            triangle.center.x * resolvedNoiseScale,
-            triangle.center.z * resolvedNoiseScale);
-        const float noiseZY = FractalNoise(
-            triangle.center.z * resolvedNoiseScale,
-            triangle.center.y * resolvedNoiseScale);
-        const float coarseNoise = (noiseXY + noiseXZ + noiseZY) / 3.0f;
-        const float fineNoise = FractalNoise(
-            triangle.center.x * resolvedNoiseScale * 2.45f,
-            triangle.center.y * resolvedNoiseScale * 2.45f);
-        triangle.burnNoise = coarseNoise * 0.72f + fineNoise * 0.28f;
+        triangle.burnNoise = IncinerationField::BurnNoise(
+            triangle.center,
+            resolvedNoiseScale);
         m_sourceTriangles.push_back(triangle);
     };
 
@@ -780,36 +740,18 @@ void BurnFragmentSystem::Update(float deltaSeconds, const SceneObject* source, b
 
     if (!material.dissolvePaused && m_increasing && amount > 0.0001f)
     {
-        const XMFLOAT3 boundsSize{
-            std::max(mesh.boundsMax.x - mesh.boundsMin.x, 0.0001f),
-            std::max(mesh.boundsMax.y - mesh.boundsMin.y, 0.0001f),
-            std::max(mesh.boundsMax.z - mesh.boundsMin.z, 0.0001f),
-        };
-        const XMFLOAT3 direction = Normalize(material.dissolveDirection, XMFLOAT3(0.0f, 1.0f, 0.0f));
-        const float directionSpan = std::max(
-            std::abs(direction.x) + std::abs(direction.y) + std::abs(direction.z),
-            0.001f);
         for (SourceTriangle& triangle : m_sourceTriangles)
         {
             if (triangle.emitted)
             {
                 continue;
             }
-            const XMFLOAT3 local01{
-                (triangle.center.x - mesh.boundsMin.x) / boundsSize.x,
-                (triangle.center.y - mesh.boundsMin.y) / boundsSize.y,
-                (triangle.center.z - mesh.boundsMin.z) / boundsSize.z,
-            };
-            const float directional =
-                ((local01.x - 0.5f) * direction.x +
-                 (local01.y - 0.5f) * direction.y +
-                 (local01.z - 0.5f) * direction.z) /
-                    directionSpan +
-                0.5f;
-            float ignition = Saturate(
-                directional + (triangle.burnNoise - 0.5f) * material.dissolveNoiseInfluence);
-            ignition = std::max(ignition, triangle.seed * 0.035f);
-            if (ignition > amount)
+            const float ignition = IncinerationField::EvaluateFromNoise(
+                triangle.center,
+                triangle.burnNoise,
+                mesh,
+                material);
+            if (ignition <= m_previousAmount || ignition > amount)
             {
                 continue;
             }
@@ -818,7 +760,10 @@ void BurnFragmentSystem::Update(float deltaSeconds, const SceneObject* source, b
             const float densitySelector = Hash(
                 triangle.seed * 173.0f + ignition * 37.0f,
                 triangle.seed * 251.0f + 11.0f);
-            if (densitySelector < 0.070f)
+            // Solid crumbs are the accent layer, not the emitter itself.
+            // Keeping this sparse prevents adjacent fragments from merging
+            // into another apparent sheet along the burn front.
+            if (densitySelector < 0.012f)
             {
                 SpawnFragment(triangle, material);
             }

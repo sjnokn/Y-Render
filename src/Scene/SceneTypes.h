@@ -153,9 +153,9 @@ inline void ApplyDissolvePreset(Material& material, int mode = 0)
         material.dissolveProgressSpeed = 0.085f;
         material.dissolveEdgeColor = DirectX::XMFLOAT4(1.0f, 0.075f, 0.006f, 1.0f);
         material.dissolveSecondaryColor = DirectX::XMFLOAT4(1.0f, 0.86f, 0.24f, 1.0f);
-        material.dissolveParticleRate = 138.0f;
-        material.dissolveParticleSize = 0.070f;
-        material.dissolveParticleLifetime = 1.55f;
+        material.dissolveParticleRate = 200.0f;
+        material.dissolveParticleSize = 0.046f;
+        material.dissolveParticleLifetime = 1.45f;
         material.dissolveParticleWind = DirectX::XMFLOAT3(0.0f, 0.13f, 0.0f);
         break;
     case 4: // FlowMap energy

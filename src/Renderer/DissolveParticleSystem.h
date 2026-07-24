@@ -5,6 +5,7 @@
 #include <DirectXMath.h>
 
 #include <random>
+#include <cstddef>
 #include <vector>
 
 namespace YRender
@@ -33,18 +34,34 @@ private:
         float lifetime = 1.0f;
         float size = 0.05f;
         float seed = 0.0f;
+        float attachedTime = 0.0f;
+    };
+
+    struct SurfaceSample
+    {
+        DirectX::XMFLOAT3 position{};
+        DirectX::XMFLOAT3 normal{};
+        float burnNoise = 0.5f;
+        float seed = 0.0f;
     };
 
     float Random01();
-    void Spawn(const SceneObject& source, int mode);
+    void Spawn(
+        const SceneObject& source,
+        int mode,
+        const SurfaceSample* incinerationSample = nullptr);
+    void RebuildIncinerationSource(const Mesh& mesh, float noiseScale);
     float CurrentAmount(const Material& material) const;
 
     std::vector<Particle> m_particles;
+    std::vector<SurfaceSample> m_surfaceSamples;
     std::vector<Vertex> m_gpuVertices;
+    const Mesh* m_sourceMesh = nullptr;
     std::mt19937 m_random{0x59444C56u};
     unsigned int m_vao = 0;
     unsigned int m_vertexBuffer = 0;
     DirectX::XMFLOAT4X4 m_sourceWorld{};
+    float m_sourceNoiseScale = -1.0f;
     float m_spawnAccumulator = 0.0f;
     float m_previousAmount = 0.0f;
     bool m_amountInitialized = false;

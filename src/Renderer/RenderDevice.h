@@ -5,12 +5,14 @@
 #include <windows.h>
 #include <string>
 
+struct GLFWwindow;
+
 namespace YRender
 {
 class RenderDevice
 {
 public:
-    void Initialize(HWND hwnd, UINT width, UINT height);
+    void Initialize(GLFWwindow* window, int width, int height);
     void Resize(UINT width, UINT height);
     void BeginScene(const float clearColor[4]);
     void BeginBloomTarget();
@@ -26,7 +28,7 @@ public:
     void EndEvent();
     bool CaptureBackBufferPng(const std::wstring& path);
 
-    bool IsInitialized() const { return m_glrc != nullptr; }
+    bool IsInitialized() const { return m_window != nullptr; }
     unsigned int SceneColorTexture() const { return m_sceneTarget.colorTexture; }
     unsigned int DepthTexture() const { return m_sceneTarget.depthTexture; }
     unsigned int BloomTexture() const { return m_bloomTarget.colorTexture; }
@@ -44,9 +46,7 @@ private:
     void DestroyColorTarget(RenderTarget& target);
     void BeginColorTarget(const RenderTarget& target);
 
-    HWND m_hwnd = nullptr;
-    HDC m_hdc = nullptr;
-    HGLRC m_glrc = nullptr;
+    GLFWwindow* m_window = nullptr;
     UINT m_width = 1;
     UINT m_height = 1;
     RenderTarget m_sceneTarget;

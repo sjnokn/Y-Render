@@ -20,19 +20,22 @@ namespace YRender
 class RendererApp
 {
 public:
-    int Run(HINSTANCE instance, int showCommand);
+    int Run();
 
 private:
-    static LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
-    LRESULT HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
+    static void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
+    static void MouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
+    static void CursorPosCallback(GLFWwindow* window, double x, double y);
+    static void ScrollCallback(GLFWwindow* window, double xoffset, double yoffset);
+    static void FramebufferSizeCallback(GLFWwindow* window, int width, int height);
+    static void WindowCloseCallback(GLFWwindow* window);
+    static void WindowFocusCallback(GLFWwindow* window, int focused);
 
-    void OnKeyPressed(UINT key);
-    void OnMouseButton(UINT message, LPARAM lParam);
-    void OnMouseMove(LPARAM lParam);
-    void OnMouseWheel(WPARAM wParam, LPARAM lParam);
-    bool IsPointInPreview(POINT clientPoint) const;
+    void OnKeyPressed(int key);
+    bool IsPointInPreview(float x, float y) const;
     ShaderLabViewport CurrentPreviewViewport() const;
-    void CreateAppWindow(HINSTANCE instance, int showCommand);
+    void CreateAppWindow();
+    void RegisterCallbacks();
     void InitializeRenderer();
     void InitializeImGui();
     void ShutdownImGui();
@@ -58,7 +61,7 @@ private:
     bool ShouldDepthEffects() const;
     void SetMat4(unsigned int program, const char* name, const DirectX::XMMATRIX& matrix) const;
 
-    HWND m_hwnd = nullptr;
+    GLFWwindow* m_window = nullptr;
     UINT m_width = 1280;
     UINT m_height = 720;
     bool m_running = true;
@@ -91,7 +94,10 @@ private:
     bool m_viewportInputCaptured = false;
     bool m_mouseButtons[3]{};
     bool m_hasLastMousePoint = false;
-    POINT m_lastMousePoint{};
+    double m_lastCursorX = 0.0;
+    double m_lastCursorY = 0.0;
+    double m_cursorX = 0.0;
+    double m_cursorY = 0.0;
     float m_pendingLookDeltaX = 0.0f;
     float m_pendingLookDeltaY = 0.0f;
     float m_pendingWheelDelta = 0.0f;

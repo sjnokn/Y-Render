@@ -83,7 +83,6 @@
     <ClCompile Include="src\Renderer\BurnFragmentSystem.cpp" />
     <ClCompile Include="src\Renderer\DebugOverlay.cpp" />
     <ClCompile Include="src\Renderer\DissolveParticleSystem.cpp" />
-    <ClCompile Include="src\Renderer\OpenGL.cpp" />
     <ClCompile Include="src\Renderer\RenderDevice.cpp" />
     <ClCompile Include="src\Renderer\RendererApp.cpp" />
     <ClCompile Include="src\YRender.cpp" />
@@ -92,7 +91,6 @@
     <ClCompile Include="external\imgui\imgui_tables.cpp" />
     <ClCompile Include="external\imgui\imgui_widgets.cpp" />
     <ClCompile Include="external\imgui\backends\imgui_impl_opengl3.cpp" />
-    <ClCompile Include="external\imgui\backends\imgui_impl_win32.cpp" />
   </ItemGroup>
   <!-- Third-party sources (vendored). Per-item metadata keeps them out of /W4
        noise and gives GLFW its config-hook macro. Behavior is unchanged: these
@@ -134,7 +132,6 @@
     <ClInclude Include="src\Renderer\DissolveParticleSystem.h" />
     <ClInclude Include="src\Renderer\FrameStats.h" />
     <ClInclude Include="src\Renderer\IncinerationField.h" />
-    <ClInclude Include="src\Renderer\OpenGL.h" />
     <ClInclude Include="src\Renderer\RenderDevice.h" />
     <ClInclude Include="src\Renderer\RendererApp.h" />
     <ClInclude Include="src\Scene\Camera.h" />

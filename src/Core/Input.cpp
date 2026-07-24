@@ -4,7 +4,7 @@ namespace YRender
 {
 void InputState::SetKey(UINT key, bool down)
 {
-    if (key >= 256)
+    if (key >= kKeyCount)
     {
         return;
     }
@@ -18,12 +18,12 @@ void InputState::SetKey(UINT key, bool down)
 
 bool InputState::IsDown(UINT key) const
 {
-    return key < 256 && m_down[key];
+    return key < kKeyCount && m_down[key];
 }
 
 bool InputState::ConsumePressed(UINT key)
 {
-    if (key >= 256 || !m_pressed[key])
+    if (key >= kKeyCount || !m_pressed[key])
     {
         return false;
     }

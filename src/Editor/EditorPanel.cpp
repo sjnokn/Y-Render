@@ -625,7 +625,7 @@ void EditorPanel::RenderInspector(EditorPanelContext& context)
                 }
                 ImGui::TextWrapped("%s", T(
                     "焚烧模式让模型裁切、火焰和灰烬共享同一个噪声燃烧边界。炭屑先附着在表面，再以模型局部空间的独立速度和旋转脱离，因此转台旋转时也不会与模型错位。",
-                    "Incineration uses one noisy burn field for model clipping, flames, and ash. Charcoal crumbs begin attached to the surface, then detach with independent local-space velocity and rotation, so they remain aligned while the preview turntable rotates."));
+                    "Incineration uses one noisy burn field for model clipping, flames, and ash. Surface samples emit only when the moving dissolve threshold crosses them, so fire, sparks, fine ash, and sparse charcoal crumbs are born directly on the visible burn edge. They briefly remain attached, then detach with independent local-space motion."));
             }
             else if (object.material.surfaceEffect == 2)
             {

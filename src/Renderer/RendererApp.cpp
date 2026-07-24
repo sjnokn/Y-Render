@@ -1,15 +1,20 @@
+#include <glad/glad.h>
+
 #include "Renderer/RendererApp.h"
 
 #include "Assets/MeshFactory.h"
+#include "Core/GlfwInputMap.h"
 #include "Core/Log.h"
 #include "Core/Platform.h"
 #include "Core/ProjectConfig.h"
 #include "Renderer/DebugOverlay.h"
-#include "Renderer/OpenGL.h"
+
+#define GLFW_INCLUDE_NONE
+#include <GLFW/glfw3.h>
 
 #include "imgui.h"
+#include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_opengl3.h"
-#include "backends/imgui_impl_win32.h"
 
 #include <algorithm>
 #include <cmath>
@@ -18,17 +23,13 @@
 #include <ctime>
 #include <cstdio>
 #include <vector>
-#include <windowsx.h>
 
 using namespace DirectX;
-
-extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 namespace YRender
 {
 namespace
 {
-constexpr wchar_t kWindowClassName[] = L"YRenderWindowClass";
 constexpr int kDemoCount = 4;
 
 const char* ShowcaseEffectName(int demo)
@@ -89,12 +90,11 @@ std::string ModelStatusLine(const Mesh& mesh, bool externalCharacterLoaded)
 }
 }
 
-int RendererApp::Run(HINSTANCE instance, int showCommand)
+int RendererApp::Run()
 {
     try
     {
-        ImGui_ImplWin32_EnableDpiAwareness();
-        CreateAppWindow(instance, showCommand);
+        CreateAppWindow();
         InitializeRenderer();
         InitializeImGui();
         LoadAssets();
@@ -108,119 +108,155 @@ int RendererApp::Run(HINSTANCE instance, int showCommand)
         ShutdownImGui();
         LogError(std::string("Application startup failed: ") + error.what());
         const std::wstring message = Utf8ToWide(error.what());
-        MessageBoxW(m_hwnd, message.c_str(), L"Y-Render Error", MB_ICONERROR | MB_OK);
+        MessageBoxW(nullptr, message.c_str(), L"Y-Render Error", MB_ICONERROR | MB_OK);
         return -1;
     }
 }
 
-LRESULT CALLBACK RendererApp::WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
+void RendererApp::KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
-    RendererApp* app = nullptr;
-    if (message == WM_NCCREATE)
+    (void)scancode;
+    (void)mods;
+    auto* app = static_cast<RendererApp*>(glfwGetWindowUserPointer(window));
+    if (!app || key == GLFW_KEY_UNKNOWN)
     {
-        auto* create = reinterpret_cast<CREATESTRUCTW*>(lParam);
-        app = static_cast<RendererApp*>(create->lpCreateParams);
-        SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(app));
+        return;
     }
-    else
+    const int vk = GlfwKeyToVk(key);
+    if (action == GLFW_PRESS)
     {
-        app = reinterpret_cast<RendererApp*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+        app->m_input.SetKey(static_cast<UINT>(vk), true);
+        app->OnKeyPressed(vk);
+    }
+    else if (action == GLFW_RELEASE)
+    {
+        app->m_input.SetKey(static_cast<UINT>(vk), false);
+    }
+    // GLFW_REPEAT intentionally ignored: toggles must not auto-fire while held.
+}
+
+void RendererApp::MouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
+{
+    (void)mods;
+    auto* app = static_cast<RendererApp*>(glfwGetWindowUserPointer(window));
+    if (!app)
+    {
+        return;
+    }
+    if (button >= 0 && button < 3)
+    {
+        // GLFW_MOUSE_BUTTON_LEFT/RIGHT/MIDDLE == 0/1/2, matching m_mouseButtons.
+        app->m_mouseButtons[button] = (action == GLFW_PRESS);
     }
 
+    if (action == GLFW_PRESS)
+    {
+        app->m_viewportInputCaptured = app->IsPointInPreview(static_cast<float>(app->m_cursorX), static_cast<float>(app->m_cursorY));
+        app->m_hasLastMousePoint = true;
+        app->m_lastCursorX = app->m_cursorX;
+        app->m_lastCursorY = app->m_cursorY;
+    }
+
+    if (!app->m_mouseButtons[0] && !app->m_mouseButtons[1] && !app->m_mouseButtons[2])
+    {
+        app->m_viewportInputCaptured = false;
+        app->m_hasLastMousePoint = false;
+    }
+}
+
+void RendererApp::CursorPosCallback(GLFWwindow* window, double x, double y)
+{
+    auto* app = static_cast<RendererApp*>(glfwGetWindowUserPointer(window));
+    if (!app)
+    {
+        return;
+    }
+    app->m_cursorX = x;
+    app->m_cursorY = y;
+    if (app->m_viewportInputCaptured && app->m_hasLastMousePoint && (app->m_mouseButtons[0] || app->m_mouseButtons[1]))
+    {
+        app->m_pendingLookDeltaX += static_cast<float>(x - app->m_lastCursorX);
+        app->m_pendingLookDeltaY += static_cast<float>(y - app->m_lastCursorY);
+    }
+    app->m_lastCursorX = x;
+    app->m_lastCursorY = y;
+    app->m_hasLastMousePoint = true;
+}
+
+void RendererApp::ScrollCallback(GLFWwindow* window, double xoffset, double yoffset)
+{
+    (void)xoffset;
+    auto* app = static_cast<RendererApp*>(glfwGetWindowUserPointer(window));
+    if (!app)
+    {
+        return;
+    }
+    if (app->IsPointInPreview(static_cast<float>(app->m_cursorX), static_cast<float>(app->m_cursorY)))
+    {
+        // GLFW reports scroll in notch units (~1.0 per click), which equals the
+        // normalized delta the old WM_MOUSEWHEEL path produced after /WHEEL_DELTA.
+        app->m_pendingWheelDelta += static_cast<float>(yoffset);
+    }
+}
+
+void RendererApp::FramebufferSizeCallback(GLFWwindow* window, int width, int height)
+{
+    auto* app = static_cast<RendererApp*>(glfwGetWindowUserPointer(window));
+    if (!app)
+    {
+        return;
+    }
+    app->m_width = static_cast<UINT>(std::max(1, width));
+    app->m_height = static_cast<UINT>(std::max(1, height));
+    app->m_renderDevice.Resize(app->m_width, app->m_height);
+}
+
+void RendererApp::WindowCloseCallback(GLFWwindow* window)
+{
+    auto* app = static_cast<RendererApp*>(glfwGetWindowUserPointer(window));
     if (app)
     {
-        return app->HandleMessage(hwnd, message, wParam, lParam);
+        app->m_running = false;
     }
-
-    return DefWindowProcW(hwnd, message, wParam, lParam);
 }
 
-LRESULT RendererApp::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
+void RendererApp::WindowFocusCallback(GLFWwindow* window, int focused)
 {
-    const bool imguiHandled = ImGui::GetCurrentContext() && ImGui_ImplWin32_WndProcHandler(hwnd, message, wParam, lParam);
-
-    switch (message)
+    auto* app = static_cast<RendererApp*>(glfwGetWindowUserPointer(window));
+    if (!app || focused != GLFW_FALSE)
     {
-    case WM_DESTROY:
-        m_running = false;
-        PostQuitMessage(0);
-        return 0;
-    case WM_SIZE:
-        if (m_renderDevice.IsInitialized() && wParam != SIZE_MINIMIZED)
-        {
-            m_width = std::max<UINT>(1, LOWORD(lParam));
-            m_height = std::max<UINT>(1, HIWORD(lParam));
-            m_renderDevice.Resize(m_width, m_height);
-        }
-        return 0;
-    case WM_DPICHANGED:
-        if (lParam)
-        {
-            const RECT* suggestedRect = reinterpret_cast<const RECT*>(lParam);
-            SetWindowPos(
-                hwnd,
-                nullptr,
-                suggestedRect->left,
-                suggestedRect->top,
-                suggestedRect->right - suggestedRect->left,
-                suggestedRect->bottom - suggestedRect->top,
-                SWP_NOZORDER | SWP_NOACTIVATE);
-        }
-        return 0;
-    case WM_KILLFOCUS:
-        m_input.Clear();
-        m_viewportInputCaptured = false;
-        m_mouseButtons[0] = false;
-        m_mouseButtons[1] = false;
-        m_mouseButtons[2] = false;
-        m_hasLastMousePoint = false;
-        ReleaseCapture();
-        return 0;
-    case WM_KEYDOWN:
-        if (wParam < 256)
-        {
-            const bool wasDown = m_input.IsDown(static_cast<UINT>(wParam));
-            m_input.SetKey(static_cast<UINT>(wParam), true);
-            if (!wasDown)
-            {
-                OnKeyPressed(static_cast<UINT>(wParam));
-            }
-        }
-        return 0;
-    case WM_KEYUP:
-        if (wParam < 256)
-        {
-            m_input.SetKey(static_cast<UINT>(wParam), false);
-        }
-        return 0;
-    case WM_LBUTTONDOWN:
-    case WM_RBUTTONDOWN:
-    case WM_MBUTTONDOWN:
-    case WM_LBUTTONUP:
-    case WM_RBUTTONUP:
-    case WM_MBUTTONUP:
-        OnMouseButton(message, lParam);
-        return 0;
-    case WM_MOUSEMOVE:
-        OnMouseMove(lParam);
-        return 0;
-    case WM_MOUSEWHEEL:
-        OnMouseWheel(wParam, lParam);
-        return 0;
-    default:
-        if (imguiHandled)
-        {
-            return true;
-        }
-        return DefWindowProcW(hwnd, message, wParam, lParam);
+        return;
     }
+    app->m_input.Clear();
+    app->m_viewportInputCaptured = false;
+    app->m_mouseButtons[0] = false;
+    app->m_mouseButtons[1] = false;
+    app->m_mouseButtons[2] = false;
+    app->m_hasLastMousePoint = false;
 }
 
-void RendererApp::OnKeyPressed(UINT key)
+void RendererApp::RegisterCallbacks()
+{
+    // Registered before ImGui_ImplGlfw_InitForOpenGL(install_callbacks=true):
+    // ImGui installs its own key/mouse/cursor/scroll/focus callbacks on top of
+    // these and chains to them via its PrevUserCallback* slots. The close and
+    // framebuffer-size callbacks are not touched by ImGui and stay standalone.
+    glfwSetWindowUserPointer(m_window, this);
+    glfwSetKeyCallback(m_window, KeyCallback);
+    glfwSetMouseButtonCallback(m_window, MouseButtonCallback);
+    glfwSetCursorPosCallback(m_window, CursorPosCallback);
+    glfwSetScrollCallback(m_window, ScrollCallback);
+    glfwSetFramebufferSizeCallback(m_window, FramebufferSizeCallback);
+    glfwSetWindowCloseCallback(m_window, WindowCloseCallback);
+    glfwSetWindowFocusCallback(m_window, WindowFocusCallback);
+}
+
+void RendererApp::OnKeyPressed(int key)
 {
     if (key == VK_ESCAPE)
     {
-        DestroyWindow(m_hwnd);
+        glfwSetWindowShouldClose(m_window, GLFW_TRUE);
+        m_running = false;
     }
     else if (key == VK_F1)
     {
@@ -263,85 +299,13 @@ void RendererApp::OnKeyPressed(UINT key)
     }
 }
 
-void RendererApp::OnMouseButton(UINT message, LPARAM lParam)
-{
-    const POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-    const bool inPreview = IsPointInPreview(point);
-    switch (message)
-    {
-    case WM_LBUTTONDOWN:
-        m_mouseButtons[0] = true;
-        break;
-    case WM_RBUTTONDOWN:
-        m_mouseButtons[1] = true;
-        break;
-    case WM_MBUTTONDOWN:
-        m_mouseButtons[2] = true;
-        break;
-    case WM_LBUTTONUP:
-        m_mouseButtons[0] = false;
-        break;
-    case WM_RBUTTONUP:
-        m_mouseButtons[1] = false;
-        break;
-    case WM_MBUTTONUP:
-        m_mouseButtons[2] = false;
-        break;
-    default:
-        break;
-    }
-
-    if (message == WM_LBUTTONDOWN || message == WM_RBUTTONDOWN || message == WM_MBUTTONDOWN)
-    {
-        m_viewportInputCaptured = inPreview;
-        m_hasLastMousePoint = true;
-        m_lastMousePoint = point;
-        if (m_viewportInputCaptured)
-        {
-            SetCapture(m_hwnd);
-        }
-    }
-
-    if (!m_mouseButtons[0] && !m_mouseButtons[1] && !m_mouseButtons[2])
-    {
-        m_viewportInputCaptured = false;
-        m_hasLastMousePoint = false;
-        if (GetCapture() == m_hwnd)
-        {
-            ReleaseCapture();
-        }
-    }
-}
-
-void RendererApp::OnMouseMove(LPARAM lParam)
-{
-    const POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-    if (m_viewportInputCaptured && m_hasLastMousePoint && (m_mouseButtons[0] || m_mouseButtons[1]))
-    {
-        m_pendingLookDeltaX += static_cast<float>(point.x - m_lastMousePoint.x);
-        m_pendingLookDeltaY += static_cast<float>(point.y - m_lastMousePoint.y);
-    }
-    m_lastMousePoint = point;
-    m_hasLastMousePoint = true;
-}
-
-void RendererApp::OnMouseWheel(WPARAM wParam, LPARAM lParam)
-{
-    POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-    ScreenToClient(m_hwnd, &point);
-    if (IsPointInPreview(point))
-    {
-        m_pendingWheelDelta += static_cast<float>(GET_WHEEL_DELTA_WPARAM(wParam)) / static_cast<float>(WHEEL_DELTA);
-    }
-}
-
-bool RendererApp::IsPointInPreview(POINT clientPoint) const
+bool RendererApp::IsPointInPreview(float x, float y) const
 {
     const ShaderLabViewport viewport = CurrentPreviewViewport();
-    return static_cast<float>(clientPoint.x) >= viewport.x &&
-        static_cast<float>(clientPoint.y) >= viewport.y &&
-        static_cast<float>(clientPoint.x) < viewport.x + viewport.width &&
-        static_cast<float>(clientPoint.y) < viewport.y + viewport.height;
+    return x >= viewport.x &&
+        y >= viewport.y &&
+        x < viewport.x + viewport.width &&
+        y < viewport.y + viewport.height;
 }
 
 ShaderLabViewport RendererApp::CurrentPreviewViewport() const
@@ -355,7 +319,7 @@ ShaderLabViewport RendererApp::CurrentPreviewViewport() const
     return m_editorPanel.PreviewViewport(width, height);
 }
 
-void RendererApp::CreateAppWindow(HINSTANCE instance, int showCommand)
+void RendererApp::CreateAppWindow()
 {
     CreateDirectoryW(L"logs", nullptr);
     InitializeLog(L"logs\\y-render.log");
@@ -371,49 +335,32 @@ void RendererApp::CreateAppWindow(HINSTANCE instance, int showCommand)
         AddAssetRoot(root);
     }
 
-    WNDCLASSEXW wc{};
-    wc.cbSize = sizeof(wc);
-    wc.lpfnWndProc = WindowProc;
-    wc.hInstance = instance;
-    wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    wc.lpszClassName = kWindowClassName;
-    wc.style = CS_HREDRAW | CS_VREDRAW;
-    RegisterClassExW(&wc);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+    glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
 
-    RECT rect{0, 0, static_cast<LONG>(m_width), static_cast<LONG>(m_height)};
-    AdjustWindowRect(&rect, WS_OVERLAPPEDWINDOW, FALSE);
-
-    m_hwnd = CreateWindowExW(
-        0,
-        kWindowClassName,
-        L"Y-Render",
-        WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT,
-        CW_USEDEFAULT,
-        rect.right - rect.left,
-        rect.bottom - rect.top,
-        nullptr,
-        nullptr,
-        instance,
-        this);
-
-    if (!m_hwnd)
+    m_window = glfwCreateWindow(static_cast<int>(m_width), static_cast<int>(m_height), "Y-Render", nullptr, nullptr);
+    if (!m_window)
     {
-        throw std::runtime_error("CreateWindowEx failed");
+        throw std::runtime_error("glfwCreateWindow failed");
     }
 
-    ShowWindow(m_hwnd, showCommand);
+    glfwSetWindowUserPointer(m_window, this);
+    glfwMakeContextCurrent(m_window);
+    RegisterCallbacks();
+    glfwShowWindow(m_window);
 }
 
 void RendererApp::InitializeRenderer()
 {
-    RECT clientRect{};
-    if (GetClientRect(m_hwnd, &clientRect))
-    {
-        m_width = std::max<UINT>(1, static_cast<UINT>(clientRect.right - clientRect.left));
-        m_height = std::max<UINT>(1, static_cast<UINT>(clientRect.bottom - clientRect.top));
-    }
-    m_renderDevice.Initialize(m_hwnd, m_width, m_height);
+    int framebufferWidth = 0;
+    int framebufferHeight = 0;
+    glfwGetFramebufferSize(m_window, &framebufferWidth, &framebufferHeight);
+    m_width = static_cast<UINT>(std::max(1, framebufferWidth));
+    m_height = static_cast<UINT>(std::max(1, framebufferHeight));
+    m_renderDevice.Initialize(m_window, static_cast<int>(m_width), static_cast<int>(m_height));
     m_resources.Initialize();
 }
 
@@ -495,7 +442,7 @@ void RendererApp::InitializeImGui()
     colors[ImGuiCol_TabSelected] = ImVec4(0.26f, 0.21f, 0.12f, 1.00f);
     colors[ImGuiCol_TabSelectedOverline] = ImVec4(0.77f, 0.52f, 0.16f, 1.00f);
 
-    ImGui_ImplWin32_InitForOpenGL(m_hwnd);
+    ImGui_ImplGlfw_InitForOpenGL(m_window, true);
     ImGui_ImplOpenGL3_Init();
 }
 
@@ -507,8 +454,13 @@ void RendererApp::ShutdownImGui()
     }
 
     ImGui_ImplOpenGL3_Shutdown();
-    ImGui_ImplWin32_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
+    if (m_window)
+    {
+        glfwDestroyWindow(m_window);
+        m_window = nullptr;
+    }
 }
 
 void RendererApp::LoadAssets()
@@ -718,18 +670,9 @@ void RendererApp::MainLoop()
     QueryPerformanceFrequency(&frequency);
     QueryPerformanceCounter(&previous);
 
-    MSG msg{};
-    while (m_running)
+    while (m_running && !glfwWindowShouldClose(m_window))
     {
-        while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE))
-        {
-            if (msg.message == WM_QUIT)
-            {
-                m_running = false;
-            }
-            TranslateMessage(&msg);
-            DispatchMessageW(&msg);
-        }
+        glfwPollEvents();
 
         LARGE_INTEGER current{};
         QueryPerformanceCounter(&current);
@@ -757,13 +700,7 @@ void RendererApp::Update(float dt)
     }
 
     const ImGuiIO& io = ImGui::GetIO();
-    POINT cursorPoint{};
-    bool viewportHovered = false;
-    if (GetCursorPos(&cursorPoint))
-    {
-        ScreenToClient(m_hwnd, &cursorPoint);
-        viewportHovered = IsPointInPreview(cursorPoint);
-    }
+    const bool viewportHovered = IsPointInPreview(static_cast<float>(m_cursorX), static_cast<float>(m_cursorY));
 
     const bool acceptCameraInput = (m_viewportInputCaptured || viewportHovered) && !io.WantTextInput;
     m_camera.Update(dt, m_input, acceptCameraInput, m_pendingLookDeltaX, m_pendingLookDeltaY, m_pendingWheelDelta);
@@ -795,7 +732,7 @@ void RendererApp::UpdateWindowTitle()
             (character.material.surfaceEffect == 2 ? 3 : (character.material.lightingModel > 0 ? 1 : 0));
     }
     state.wireframe = m_wireframe;
-    SetWindowTextW(m_hwnd, BuildDebugTitle(state).c_str());
+    glfwSetWindowTitle(m_window, WideToUtf8(BuildDebugTitle(state)).c_str());
 }
 
 XMMATRIX RendererApp::CameraViewProjection(float aspect) const
@@ -1207,7 +1144,7 @@ void RendererApp::RenderPresentationPass()
 void RendererApp::RenderDebugUi()
 {
     ImGui_ImplOpenGL3_NewFrame();
-    ImGui_ImplWin32_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
     if (m_showDebugUi)

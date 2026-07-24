@@ -1,8 +1,20 @@
+#include <glad/glad.h>
+
 #include "Renderer/DissolveParticleSystem.h"
 
-#include "Renderer/OpenGL.h"
+#include "Renderer/IncinerationField.h"
+
+// GL_POINT_SPRITE (0x8861) was removed from the OpenGL 3.3 core profile, so the
+// core-profile glad headers only expose the GL_POINT_SPRITE_ARB/_NV aliases.
+// The original OpenGL.h shim defined this value; restore it locally so the
+// existing glEnable/glDisable calls compile unchanged (point sprites are always
+// enabled under core, so these calls are inert no-ops, same as on the 3b shim).
+#ifndef GL_POINT_SPRITE
+#define GL_POINT_SPRITE 0x8861
+#endif
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 
@@ -13,6 +25,7 @@ namespace YRender
 namespace
 {
 constexpr size_t kMaxParticles = 1200;
+constexpr size_t kMaxIncinerationSamples = 140000;
 
 XMFLOAT3 Add(const XMFLOAT3& a, const XMFLOAT3& b)
 {
@@ -24,91 +37,20 @@ XMFLOAT3 Multiply(const XMFLOAT3& value, float scale)
     return XMFLOAT3(value.x * scale, value.y * scale, value.z * scale);
 }
 
-float Saturate(float value)
+XMFLOAT3 Subtract(const XMFLOAT3& a, const XMFLOAT3& b)
 {
-    return std::clamp(value, 0.0f, 1.0f);
+    return XMFLOAT3(a.x - b.x, a.y - b.y, a.z - b.z);
 }
 
-float Fract(float value)
+float Length(const XMFLOAT3& value)
 {
-    return value - std::floor(value);
+    return std::sqrt(value.x * value.x + value.y * value.y + value.z * value.z);
 }
 
-float Hash(float x, float y)
+XMFLOAT3 Normalize(const XMFLOAT3& value, const XMFLOAT3& fallback)
 {
-    return Fract(std::sin(x * 127.1f + y * 311.7f) * 43758.5453f);
-}
-
-float ValueNoise(float x, float y)
-{
-    const float ix = std::floor(x);
-    const float iy = std::floor(y);
-    float fx = Fract(x);
-    float fy = Fract(y);
-    fx = fx * fx * (3.0f - 2.0f * fx);
-    fy = fy * fy * (3.0f - 2.0f * fy);
-    const float a = Hash(ix, iy);
-    const float b = Hash(ix + 1.0f, iy);
-    const float c = Hash(ix, iy + 1.0f);
-    const float d = Hash(ix + 1.0f, iy + 1.0f);
-    return (a + (b - a) * fx) +
-        ((c + (d - c) * fx) - (a + (b - a) * fx)) * fy;
-}
-
-float FractalNoise(float x, float y)
-{
-    float result = 0.0f;
-    float amplitude = 0.5f;
-    for (int octave = 0; octave < 4; ++octave)
-    {
-        result += ValueNoise(x, y) * amplitude;
-        x = x * 2.0f + 17.0f;
-        y = y * 2.0f + 29.0f;
-        amplitude *= 0.5f;
-    }
-    return Saturate(result);
-}
-
-float IncinerationField(const XMFLOAT3& position, const Mesh& mesh, const Material& material)
-{
-    const XMFLOAT3 boundsSize{
-        std::max(mesh.boundsMax.x - mesh.boundsMin.x, 0.0001f),
-        std::max(mesh.boundsMax.y - mesh.boundsMin.y, 0.0001f),
-        std::max(mesh.boundsMax.z - mesh.boundsMin.z, 0.0001f),
-    };
-    XMFLOAT3 direction = material.dissolveDirection;
-    const float directionLength = std::sqrt(
-        direction.x * direction.x +
-        direction.y * direction.y +
-        direction.z * direction.z);
-    direction = directionLength > 0.001f
-        ? Multiply(direction, 1.0f / directionLength)
-        : XMFLOAT3(0.0f, 1.0f, 0.0f);
-    const float directionSpan = std::max(
-        std::abs(direction.x) + std::abs(direction.y) + std::abs(direction.z),
-        0.001f);
-    const XMFLOAT3 local01{
-        (position.x - mesh.boundsMin.x) / boundsSize.x,
-        (position.y - mesh.boundsMin.y) / boundsSize.y,
-        (position.z - mesh.boundsMin.z) / boundsSize.z,
-    };
-    const float directional =
-        ((local01.x - 0.5f) * direction.x +
-         (local01.y - 0.5f) * direction.y +
-         (local01.z - 0.5f) * direction.z) /
-            directionSpan +
-        0.5f;
-    const float scale = std::max(material.dissolveNoiseScale, 0.01f);
-    const float noiseXY = FractalNoise(position.x * scale, position.y * scale);
-    const float noiseXZ = FractalNoise(position.x * scale, position.z * scale);
-    const float noiseZY = FractalNoise(position.z * scale, position.y * scale);
-    const float coarseNoise = (noiseXY + noiseXZ + noiseZY) / 3.0f;
-    const float fineNoise = FractalNoise(
-        position.x * scale * 2.45f,
-        position.y * scale * 2.45f);
-    const float burnNoise = coarseNoise * 0.72f + fineNoise * 0.28f;
-    return Saturate(
-        directional + (burnNoise - 0.5f) * material.dissolveNoiseInfluence);
+    const float length = Length(value);
+    return length > 0.00001f ? Multiply(value, 1.0f / length) : fallback;
 }
 } // namespace
 
@@ -152,7 +94,10 @@ void DissolveParticleSystem::Reset()
 {
     XMStoreFloat4x4(&m_sourceWorld, XMMatrixIdentity());
     m_particles.clear();
+    m_surfaceSamples.clear();
     m_gpuVertices.clear();
+    m_sourceMesh = nullptr;
+    m_sourceNoiseScale = -1.0f;
     m_spawnAccumulator = 0.0f;
     m_previousAmount = 0.0f;
     m_amountInitialized = false;
@@ -178,7 +123,130 @@ float DissolveParticleSystem::CurrentAmount(const Material& material) const
     return cycle < 0.5f ? cycle * 2.0f : 2.0f - cycle * 2.0f;
 }
 
-void DissolveParticleSystem::Spawn(const SceneObject& source, int mode)
+void DissolveParticleSystem::RebuildIncinerationSource(const Mesh& mesh, float noiseScale)
+{
+    m_sourceMesh = &mesh;
+    m_sourceNoiseScale = noiseScale;
+    m_surfaceSamples.clear();
+
+    const size_t triangleCount = mesh.indices.size() / 3;
+    if (triangleCount == 0)
+    {
+        return;
+    }
+
+    const float diagonal = Length(Subtract(mesh.boundsMax, mesh.boundsMin));
+    const float targetSpacing = std::max(diagonal * 0.022f, 0.010f);
+    m_surfaceSamples.reserve(std::min(triangleCount * 2, kMaxIncinerationSamples));
+
+    const auto interpolatePosition = [](const std::array<XMFLOAT3, 3>& values, float b0, float b1, float b2)
+    {
+        return XMFLOAT3(
+            values[0].x * b0 + values[1].x * b1 + values[2].x * b2,
+            values[0].y * b0 + values[1].y * b1 + values[2].y * b2,
+            values[0].z * b0 + values[1].z * b1 + values[2].z * b2);
+    };
+
+    const auto appendSample = [&](const std::array<XMFLOAT3, 3>& positions,
+                                  const std::array<XMFLOAT3, 3>& normals,
+                                  float b0,
+                                  float b1,
+                                  float b2,
+                                  size_t sourceIndex)
+    {
+        if (m_surfaceSamples.size() >= kMaxIncinerationSamples)
+        {
+            return;
+        }
+        SurfaceSample sample;
+        sample.position = interpolatePosition(positions, b0, b1, b2);
+        sample.normal = Normalize(
+            interpolatePosition(normals, b0, b1, b2),
+            XMFLOAT3(0.0f, 1.0f, 0.0f));
+        sample.burnNoise = IncinerationField::BurnNoise(sample.position, noiseScale);
+        sample.seed = IncinerationField::Hash(
+            sample.position.x * 37.0f + sample.position.z * 17.0f +
+                static_cast<float>(sourceIndex % 8191) * 0.013f,
+            sample.position.y * 53.0f + static_cast<float>(sourceIndex % 4093) * 0.019f);
+        m_surfaceSamples.push_back(sample);
+    };
+
+    for (size_t triangleIndex = 0;
+         triangleIndex < triangleCount && m_surfaceSamples.size() < kMaxIncinerationSamples;
+         ++triangleIndex)
+    {
+        const uint32_t indices[3]{
+            mesh.indices[triangleIndex * 3],
+            mesh.indices[triangleIndex * 3 + 1],
+            mesh.indices[triangleIndex * 3 + 2],
+        };
+        if (indices[0] >= mesh.vertices.size() ||
+            indices[1] >= mesh.vertices.size() ||
+            indices[2] >= mesh.vertices.size())
+        {
+            continue;
+        }
+
+        std::array<XMFLOAT3, 3> positions{};
+        std::array<XMFLOAT3, 3> normals{};
+        for (size_t corner = 0; corner < 3; ++corner)
+        {
+            positions[corner] = mesh.vertices[indices[corner]].position;
+            normals[corner] = mesh.vertices[indices[corner]].normal;
+        }
+        const float maximumEdge = std::max({
+            Length(Subtract(positions[1], positions[0])),
+            Length(Subtract(positions[2], positions[1])),
+            Length(Subtract(positions[0], positions[2])),
+        });
+        const int segments = std::clamp(
+            static_cast<int>(std::ceil(maximumEdge / targetSpacing)),
+            1,
+            8);
+        const float inverseSegments = 1.0f / static_cast<float>(segments);
+
+        for (int row = 0;
+             row < segments && m_surfaceSamples.size() < kMaxIncinerationSamples;
+             ++row)
+        {
+            for (int column = 0;
+                 column < segments - row && m_surfaceSamples.size() < kMaxIncinerationSamples;
+                 ++column)
+            {
+                // Centroids of both sub-triangles distribute emitters across
+                // the actual mesh surface instead of restricting them to the
+                // original model vertices.
+                const float lowerB1 = (static_cast<float>(row) + 1.0f / 3.0f) * inverseSegments;
+                const float lowerB2 = (static_cast<float>(column) + 1.0f / 3.0f) * inverseSegments;
+                appendSample(
+                    positions,
+                    normals,
+                    1.0f - lowerB1 - lowerB2,
+                    lowerB1,
+                    lowerB2,
+                    triangleIndex * 131 + static_cast<size_t>(row * 11 + column));
+
+                if (row + column < segments - 1)
+                {
+                    const float upperB1 = (static_cast<float>(row) + 2.0f / 3.0f) * inverseSegments;
+                    const float upperB2 = (static_cast<float>(column) + 2.0f / 3.0f) * inverseSegments;
+                    appendSample(
+                        positions,
+                        normals,
+                        1.0f - upperB1 - upperB2,
+                        upperB1,
+                        upperB2,
+                        triangleIndex * 131 + static_cast<size_t>(row * 11 + column + 67));
+                }
+            }
+        }
+    }
+}
+
+void DissolveParticleSystem::Spawn(
+    const SceneObject& source,
+    int mode,
+    const SurfaceSample* incinerationSample)
 {
     if (!source.mesh || source.mesh->vertices.empty() || m_particles.size() >= kMaxParticles)
     {
@@ -206,49 +274,47 @@ void DissolveParticleSystem::Spawn(const SceneObject& source, int mode)
         std::abs(direction.x) + std::abs(direction.y) + std::abs(direction.z),
         0.001f);
     const float amount = CurrentAmount(material);
-    const float targetAmount = mode == 3
-        ? std::clamp(amount + (Random01() - 0.5f) * 0.045f, 0.0f, 1.0f)
-        : amount;
-
-    size_t bestIndex = static_cast<size_t>(Random01() * static_cast<float>(mesh.vertices.size()));
-    bestIndex = std::min(bestIndex, mesh.vertices.size() - 1);
-    float bestDistance = 10.0f;
-    const int candidateCount = mode == 3 ? 104 : 28;
-    for (int attempt = 0; attempt < candidateCount; ++attempt)
+    size_t bestIndex = 0;
+    if (!incinerationSample)
     {
-        size_t index = static_cast<size_t>(Random01() * static_cast<float>(mesh.vertices.size()));
-        index = std::min(index, mesh.vertices.size() - 1);
-        const XMFLOAT3& position = mesh.vertices[index].position;
-        const XMFLOAT3 local01{
-            (position.x - mesh.boundsMin.x) / boundsSize.x,
-            (position.y - mesh.boundsMin.y) / boundsSize.y,
-            (position.z - mesh.boundsMin.z) / boundsSize.z,
-        };
-        const float field = mode == 3
-            ? IncinerationField(position, mesh, material)
-            : ((local01.x - 0.5f) * direction.x +
-               (local01.y - 0.5f) * direction.y +
-               (local01.z - 0.5f) * direction.z) /
+        bestIndex = static_cast<size_t>(Random01() * static_cast<float>(mesh.vertices.size()));
+        bestIndex = std::min(bestIndex, mesh.vertices.size() - 1);
+        float bestDistance = 10.0f;
+        for (int attempt = 0; attempt < 28; ++attempt)
+        {
+            size_t index = static_cast<size_t>(Random01() * static_cast<float>(mesh.vertices.size()));
+            index = std::min(index, mesh.vertices.size() - 1);
+            const XMFLOAT3& position = mesh.vertices[index].position;
+            const XMFLOAT3 local01{
+                (position.x - mesh.boundsMin.x) / boundsSize.x,
+                (position.y - mesh.boundsMin.y) / boundsSize.y,
+                (position.z - mesh.boundsMin.z) / boundsSize.z,
+            };
+            const float field =
+                ((local01.x - 0.5f) * direction.x +
+                 (local01.y - 0.5f) * direction.y +
+                 (local01.z - 0.5f) * direction.z) /
                     directionSpan +
                 0.5f;
-        const float distance = std::abs(field - targetAmount);
-        if (distance < bestDistance)
-        {
-            bestDistance = distance;
-            bestIndex = index;
+            const float distance = std::abs(field - amount);
+            if (distance < bestDistance)
+            {
+                bestDistance = distance;
+                bestIndex = index;
+            }
         }
     }
 
-    const Vertex& sourceVertex = mesh.vertices[bestIndex];
     XMFLOAT3 position;
     XMFLOAT3 normal;
-    if (mode == 3)
+    if (incinerationSample)
     {
-        position = sourceVertex.position;
-        normal = sourceVertex.normal;
+        position = incinerationSample->position;
+        normal = incinerationSample->normal;
     }
     else
     {
+        const Vertex& sourceVertex = mesh.vertices[bestIndex];
         const XMMATRIX world = source.transform.Matrix();
         XMStoreFloat3(
             &position,
@@ -259,7 +325,9 @@ void DissolveParticleSystem::Spawn(const SceneObject& source, int mode)
     }
 
     Particle particle;
-    particle.seed = Random01();
+    particle.seed = incinerationSample
+        ? IncinerationField::Fract(incinerationSample->seed * 1.37f + Random01() * 0.31f)
+        : Random01();
     particle.age = 0.0f;
     particle.lifetime = material.dissolveParticleLifetime * (0.72f + Random01() * 0.56f);
     particle.size = material.dissolveParticleSize * (0.65f + Random01() * 0.75f);
@@ -286,6 +354,7 @@ void DissolveParticleSystem::Spawn(const SceneObject& source, int mode)
 
     if (mode == 3)
     {
+        particle.attachedTime = 0.025f + Random01() * 0.055f;
         const float kind = particle.seed;
         if (kind < 0.15f)
         {
@@ -361,12 +430,21 @@ void DissolveParticleSystem::Update(float deltaSeconds, const SceneObject* sourc
     }
     XMStoreFloat4x4(&m_sourceWorld, source->transform.Matrix());
 
+    if (mode == 3 &&
+        (m_sourceMesh != source->mesh ||
+         std::abs(m_sourceNoiseScale - source->material.dissolveNoiseScale) > 0.025f))
+    {
+        RebuildIncinerationSource(*source->mesh, source->material.dissolveNoiseScale);
+    }
+
     const float amount = CurrentAmount(source->material);
+    float previousAmount = m_previousAmount;
     if (mode == 3)
     {
         if (!m_amountInitialized)
         {
             m_previousAmount = 0.0f;
+            previousAmount = 0.0f;
             m_amountInitialized = true;
             m_increasing = true;
         }
@@ -383,14 +461,14 @@ void DissolveParticleSystem::Update(float deltaSeconds, const SceneObject* sourc
             m_particles.clear();
             m_spawnAccumulator = 0.0f;
         }
-        m_previousAmount = amount;
     }
-    if (source->material.dissolveAutoProgress && source->material.dissolvePaused)
+    if (source->material.dissolvePaused)
     {
         return;
     }
     if (mode == 3 && !m_increasing)
     {
+        m_previousAmount = amount;
         return;
     }
 
@@ -398,6 +476,10 @@ void DissolveParticleSystem::Update(float deltaSeconds, const SceneObject* sourc
     for (Particle& particle : m_particles)
     {
         particle.age += dt;
+        if (mode == 3 && particle.age <= particle.attachedTime)
+        {
+            continue;
+        }
         particle.position = Add(particle.position, Multiply(particle.velocity, dt));
         if (mode == 3)
         {
@@ -444,12 +526,55 @@ void DissolveParticleSystem::Update(float deltaSeconds, const SceneObject* sourc
             [](const Particle& particle) { return particle.age >= particle.lifetime; }),
         m_particles.end());
 
-    m_spawnAccumulator += dt * std::max(source->material.dissolveParticleRate, 0.0f);
-    int spawnCount = std::min(static_cast<int>(m_spawnAccumulator), 18);
-    m_spawnAccumulator -= static_cast<float>(spawnCount);
-    while (spawnCount-- > 0)
+    m_spawnAccumulator = std::min(
+        m_spawnAccumulator + dt * std::max(source->material.dissolveParticleRate, 0.0f),
+        48.0f);
+    int spawnCount = std::min(static_cast<int>(m_spawnAccumulator), 36);
+
+    if (mode == 3)
     {
-        Spawn(*source, mode);
+        std::vector<size_t> crossedSamples;
+        if (amount > previousAmount + 0.000001f)
+        {
+            crossedSamples.reserve(256);
+            for (size_t sampleIndex = 0; sampleIndex < m_surfaceSamples.size(); ++sampleIndex)
+            {
+                const SurfaceSample& sample = m_surfaceSamples[sampleIndex];
+                const float ignition = IncinerationField::EvaluateFromNoise(
+                    sample.position,
+                    sample.burnNoise,
+                    *source->mesh,
+                    source->material);
+                if (ignition > previousAmount && ignition <= amount)
+                {
+                    crossedSamples.push_back(sampleIndex);
+                }
+            }
+        }
+
+        if (!crossedSamples.empty() && spawnCount > 0)
+        {
+            std::shuffle(crossedSamples.begin(), crossedSamples.end(), m_random);
+            spawnCount = std::min(spawnCount, static_cast<int>(crossedSamples.size()));
+            m_spawnAccumulator -= static_cast<float>(spawnCount);
+            for (int spawnIndex = 0; spawnIndex < spawnCount; ++spawnIndex)
+            {
+                Spawn(*source, mode, &m_surfaceSamples[crossedSamples[static_cast<size_t>(spawnIndex)]]);
+            }
+        }
+    }
+    else
+    {
+        m_spawnAccumulator -= static_cast<float>(spawnCount);
+        while (spawnCount-- > 0)
+        {
+            Spawn(*source, mode);
+        }
+    }
+
+    if (mode == 3)
+    {
+        m_previousAmount = amount;
     }
 }
 

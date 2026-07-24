@@ -1,60 +1,49 @@
+#include <glad/glad.h>
+
 #include "Renderer/RenderDevice.h"
 
 #include "Core/Platform.h"
-#include "Renderer/OpenGL.h"
+
+#define GLFW_INCLUDE_NONE
+#include <GLFW/glfw3.h>
 
 #include <algorithm>
+#include <cassert>
 #include <cstdint>
 #include <vector>
 #include <stb_image_write.h>
 
 namespace YRender
 {
-void RenderDevice::Initialize(HWND hwnd, UINT width, UINT height)
+void RenderDevice::Initialize(GLFWwindow* window, int width, int height)
 {
-    m_hwnd = hwnd;
-    m_width = std::max<UINT>(1, width);
-    m_height = std::max<UINT>(1, height);
-    m_hdc = GetDC(m_hwnd);
-    if (!m_hdc)
+    m_window = window;
+    m_width = std::max<UINT>(1, static_cast<UINT>(width));
+    m_height = std::max<UINT>(1, static_cast<UINT>(height));
+
+    // The GL context is created and made current by the caller (GLFW). GLAD must
+    // load after MakeCurrent or every function pointer comes back null.
+    const int loaded = gladLoadGLLoader(reinterpret_cast<GLADloadproc>(glfwGetProcAddress));
+    assert(loaded != 0 && "gladLoadGLLoader failed; is the context current?");
+    if (loaded == 0)
     {
-        throw std::runtime_error("GetDC failed");
+        throw std::runtime_error("GLAD failed to load OpenGL functions");
+    }
+    // Minimal sanity: a core 3.3 loader must resolve the framebuffer entrypoints
+    // the renderer relies on immediately. Fail fast instead of crashing mid-frame.
+    assert(glad_glGenFramebuffers != nullptr);
+    if (glad_glGenFramebuffers == nullptr)
+    {
+        throw std::runtime_error("GLAD resolved no framebuffer entrypoints");
     }
 
-    PIXELFORMATDESCRIPTOR pfd{};
-    pfd.nSize = sizeof(pfd);
-    pfd.nVersion = 1;
-    pfd.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
-    pfd.iPixelType = PFD_TYPE_RGBA;
-    pfd.cColorBits = 32;
-    pfd.cDepthBits = 24;
-    pfd.cStencilBits = 8;
-    pfd.iLayerType = PFD_MAIN_PLANE;
-
-    const int pixelFormat = ChoosePixelFormat(m_hdc, &pfd);
-    if (pixelFormat == 0 || !SetPixelFormat(m_hdc, pixelFormat, &pfd))
-    {
-        throw std::runtime_error("SetPixelFormat failed");
-    }
-
-    m_glrc = wglCreateContext(m_hdc);
-    if (!m_glrc || !wglMakeCurrent(m_hdc, m_glrc))
-    {
-        throw std::runtime_error("Create OpenGL context failed");
-    }
-    if (!LoadOpenGLFunctions())
-    {
-        throw std::runtime_error("OpenGL function loading failed");
-    }
-    if (wglSwapIntervalEXT)
-    {
-        wglSwapIntervalEXT(1);
-    }
+    glfwSwapInterval(1);
 
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LEQUAL);
     glDisable(GL_CULL_FACE);
-    glEnable(GL_TEXTURE_2D);
+    // glEnable(GL_TEXTURE_2D) intentionally removed: it is GL_INVALID_ENUM under
+    // the OpenGL 3.3 core profile GLFW now requests.
     CreateSceneTarget();
 }
 
@@ -126,7 +115,7 @@ void RenderDevice::SetWireframe(bool enabled)
 
 void RenderDevice::Present()
 {
-    SwapBuffers(m_hdc);
+    glfwSwapBuffers(m_window);
 }
 
 void RenderDevice::BeginEvent(const wchar_t*)

@@ -13,7 +13,11 @@ public:
     void Clear();
 
 private:
-    bool m_down[256]{};
-    bool m_pressed[256]{};
+    // 512 covers both Win32 VK codes (0..255) and the higher GLFW "named" key
+    // tokens (e.g. GLFW_KEY_ESCAPE=256, F1=290, LEFT_SHIFT=340) that survive
+    // any unmapped path before GlfwKeyToVk collapses them to VK values.
+    static constexpr int kKeyCount = 512;
+    bool m_down[kKeyCount]{};
+    bool m_pressed[kKeyCount]{};
 };
 } // namespace YRender

@@ -1,7 +1,8 @@
+#include <glad/glad.h>
+
 #include "Assets/ResourceManager.h"
 
 #include "Core/Platform.h"
-#include "Renderer/OpenGL.h"
 
 #include <array>
 #include <algorithm>
