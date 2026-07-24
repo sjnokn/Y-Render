@@ -35,15 +35,16 @@
   <PropertyGroup>
     <OutDir>$(ProjectDir)build\bin\</OutDir>
     <IntDir>$(ProjectDir)build\obj\$(Configuration)\</IntDir>
-    <IncludePath>$(ProjectDir)src;$(ProjectDir)external\imgui;$(ProjectDir)external\imgui\backends;$(IncludePath)</IncludePath>
+    <IncludePath>$(ProjectDir)src;$(ProjectDir)external\imgui;$(ProjectDir)external\imgui\backends;$(ProjectDir)external;$(ProjectDir)external\glfw\include;$(ProjectDir)external\glad\include;$(ProjectDir)external\stb;$(ProjectDir)external\tinygltf;$(ProjectDir)external\json;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
       <WarningLevel>Level4</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>WIN32;_WINDOWS;NOMINMAX;UNICODE;_UNICODE;_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_WINDOWS;NOMINMAX;UNICODE;_UNICODE;_DEBUG;TINYGLTF_NO_STB_IMAGE;TINYGLTF_NO_STB_IMAGE_WRITE;TINYGLTF_USE_CPP14;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
+      <LanguageStandard_C>stdc11</LanguageStandard_C>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
     </ClCompile>
@@ -56,9 +57,10 @@
     <ClCompile>
       <WarningLevel>Level4</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>WIN32;_WINDOWS;NOMINMAX;UNICODE;_UNICODE;NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_WINDOWS;NOMINMAX;UNICODE;_UNICODE;NDEBUG;TINYGLTF_NO_STB_IMAGE;TINYGLTF_NO_STB_IMAGE_WRITE;TINYGLTF_USE_CPP14;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
+      <LanguageStandard_C>stdc11</LanguageStandard_C>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <Optimization>MaxSpeed</Optimization>
@@ -92,6 +94,33 @@
     <ClCompile Include="external\imgui\backends\imgui_impl_opengl3.cpp" />
     <ClCompile Include="external\imgui\backends\imgui_impl_win32.cpp" />
   </ItemGroup>
+  <!-- Third-party sources (vendored). Per-item metadata keeps them out of /W4
+       noise and gives GLFW its config-hook macro. Behavior is unchanged: these
+       compile to unused objects until later phases wire them in. -->
+  <ItemGroup>
+    <ClCompile Include="external\glad\src\glad.c">
+      <WarningLevel>Level3</WarningLevel>
+      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;NOMINMAX;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <DisableSpecificWarnings>4996;4244;4267;4189</DisableSpecificWarnings>
+    </ClCompile>
+    <ClCompile Include="external\glfw\src\context.c;external\glfw\src\init.c;external\glfw\src\input.c;external\glfw\src\monitor.c;external\glfw\src\vulkan.c;external\glfw\src\window.c;external\glfw\src\win32_init.c;external\glfw\src\win32_joystick.c;external\glfw\src\win32_monitor.c;external\glfw\src\win32_thread.c;external\glfw\src\win32_time.c;external\glfw\src\win32_window.c;external\glfw\src\wgl_context.c;external\glfw\src\egl_context.c;external\glfw\src\osmesa_context.c">
+      <WarningLevel>Level3</WarningLevel>
+      <PreprocessorDefinitions>_GLFW_USE_CONFIG_H;_CRT_SECURE_NO_WARNINGS;NOMINMAX;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <DisableSpecificWarnings>4996;4244;4267;4189</DisableSpecificWarnings>
+      <ObjectFileName>$(IntDir)glfw\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="external\stb\stb_image_impl.cpp">
+      <WarningLevel>Level3</WarningLevel>
+      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;NOMINMAX;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <DisableSpecificWarnings>4996;4244;4267;4189</DisableSpecificWarnings>
+    </ClCompile>
+    <ClCompile Include="external\tinygltf\tinygltf.cpp">
+      <WarningLevel>Level3</WarningLevel>
+      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;NOMINMAX;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <DisableSpecificWarnings>4996;4244;4267;4189;4100;4456;4459;4324</DisableSpecificWarnings>
+    </ClCompile>
+    <ClCompile Include="external\imgui\backends\imgui_impl_glfw.cpp" />
+  </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\Assets\MeshFactory.h" />
     <ClInclude Include="src\Assets\ResourceManager.h" />
@@ -104,6 +133,7 @@
     <ClInclude Include="src\Renderer\DebugOverlay.h" />
     <ClInclude Include="src\Renderer\DissolveParticleSystem.h" />
     <ClInclude Include="src\Renderer\FrameStats.h" />
+    <ClInclude Include="src\Renderer\IncinerationField.h" />
     <ClInclude Include="src\Renderer\OpenGL.h" />
     <ClInclude Include="src\Renderer\RenderDevice.h" />
     <ClInclude Include="src\Renderer\RendererApp.h" />
@@ -114,6 +144,10 @@
     <ClInclude Include="external\imgui\imconfig.h" />
     <ClInclude Include="external\imgui\backends\imgui_impl_opengl3.h" />
     <ClInclude Include="external\imgui\backends\imgui_impl_win32.h" />
+    <ClInclude Include="external\imgui\backends\imgui_impl_glfw.h" />
+    <ClInclude Include="external\glad\include\glad\glad.h" />
+    <ClInclude Include="external\glfw\include\GLFW\glfw3.h" />
+    <ClInclude Include="external\tinygltf\tinygltf.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="assets\shaders\Standard.vert" />
