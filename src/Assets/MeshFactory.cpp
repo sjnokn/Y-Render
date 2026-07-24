@@ -2,6 +2,8 @@
 
 #include "Core/Platform.h"
 
+#include <tinygltf.h>
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -81,23 +83,15 @@ const T& ObjAt(const std::vector<T>& values, int objIndex, const T& fallback)
 
 namespace
 {
-struct GltfAccessor
-{
-    int bufferView = -1;
-    int componentType = 0;
-    int count = 0;
-    int byteOffset = 0;
-    bool normalized = false;
-    std::string type;
-};
-
-struct GltfBufferView
-{
-    int buffer = 0;
-    int byteOffset = 0;
-    int byteLength = 0;
-    int byteStride = 0;
-};
+// ---------------------------------------------------------------------------
+// glTF loading backed by tinygltf.
+//
+// This replaces the former hand-written JSON/GLB parser. The DirectX math is
+// intentionally preserved bit-for-bit (including known non-standard behaviours
+// such as the column/row transpose in the matrix branch and the local*
+// parentWorld composition order); only the data source changed from raw JSON
+// scanning to tinygltf::Model.
+// ---------------------------------------------------------------------------
 
 struct GltfNode
 {
@@ -106,632 +100,187 @@ struct GltfNode
     std::vector<int> children;
     DirectX::XMMATRIX local = DirectX::XMMatrixIdentity();
     DirectX::XMMATRIX world = DirectX::XMMatrixIdentity();
-    bool hasParent = false;
 };
 
-std::string ReadTextFile(const std::wstring& path)
+const unsigned char* AccessorData(
+    const tinygltf::Model& model,
+    const tinygltf::Accessor& accessor,
+    size_t& outStride)
 {
-    std::ifstream file(path, std::ios::binary);
-    if (!file)
-    {
-        return {};
-    }
-    std::ostringstream stream;
-    stream << file.rdbuf();
-    return stream.str();
-}
-
-std::vector<uint8_t> ReadBinaryFile(const std::wstring& path)
-{
-    std::ifstream file(path, std::ios::binary);
-    if (!file)
-    {
-        return {};
-    }
-    return std::vector<uint8_t>(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
-}
-
-int JsonIntAfter(const std::string& text, const std::string& key, size_t start = 0, int fallback = 0)
-{
-    const size_t keyPos = text.find(key, start);
-    if (keyPos == std::string::npos)
-    {
-        return fallback;
-    }
-    const size_t colon = text.find(':', keyPos);
-    const size_t value = text.find_first_of("-0123456789", colon);
-    if (value == std::string::npos)
-    {
-        return fallback;
-    }
-    return std::stoi(text.substr(value));
-}
-
-bool JsonBoolAfter(const std::string& text, const std::string& key, size_t start = 0, bool fallback = false)
-{
-    const size_t keyPos = text.find(key, start);
-    if (keyPos == std::string::npos)
-    {
-        return fallback;
-    }
-    const size_t colon = text.find(':', keyPos);
-    const size_t value = text.find_first_not_of(" \t\r\n", colon + 1);
-    if (value == std::string::npos)
-    {
-        return fallback;
-    }
-    if (text.compare(value, 4, "true") == 0)
-    {
-        return true;
-    }
-    if (text.compare(value, 5, "false") == 0)
-    {
-        return false;
-    }
-    return fallback;
-}
-
-float JsonFloatAfter(const std::string& text, const std::string& key, size_t start = 0, float fallback = 0.0f)
-{
-    const size_t keyPos = text.find(key, start);
-    if (keyPos == std::string::npos)
-    {
-        return fallback;
-    }
-    const size_t colon = text.find(':', keyPos);
-    const size_t value = text.find_first_of("-0123456789", colon);
-    if (value == std::string::npos)
-    {
-        return fallback;
-    }
-    return std::stof(text.substr(value));
-}
-
-std::string JsonStringAfter(const std::string& text, const std::string& key, size_t start = 0)
-{
-    const size_t keyPos = text.find(key, start);
-    if (keyPos == std::string::npos)
-    {
-        return {};
-    }
-    const size_t colon = text.find(':', keyPos);
-    const size_t firstQuote = text.find('"', colon + 1);
-    const size_t secondQuote = text.find('"', firstQuote + 1);
-    if (firstQuote == std::string::npos || secondQuote == std::string::npos)
-    {
-        return {};
-    }
-    return text.substr(firstQuote + 1, secondQuote - firstQuote - 1);
-}
-
-bool JsonFloatArrayAfter(const std::string& text, const std::string& key, float* values, size_t count)
-{
-    const size_t keyPos = text.find(key);
-    if (keyPos == std::string::npos)
-    {
-        return false;
-    }
-
-    const size_t open = text.find('[', keyPos);
-    const size_t close = text.find(']', open);
-    if (open == std::string::npos || close == std::string::npos)
-    {
-        return false;
-    }
-
-    std::stringstream stream(text.substr(open + 1, close - open - 1));
-    for (size_t i = 0; i < count; ++i)
-    {
-        stream >> values[i];
-        if (!stream)
-        {
-            return false;
-        }
-        if (i + 1 < count)
-        {
-            char comma = 0;
-            stream >> comma;
-        }
-    }
-    return true;
-}
-
-std::vector<float> JsonFloatArrayValuesAfter(const std::string& text, const std::string& key)
-{
-    std::vector<float> values;
-    const size_t keyPos = text.find(key);
-    if (keyPos == std::string::npos)
-    {
-        return values;
-    }
-
-    const size_t open = text.find('[', keyPos);
-    const size_t close = text.find(']', open);
-    if (open == std::string::npos || close == std::string::npos)
-    {
-        return values;
-    }
-
-    std::stringstream stream(text.substr(open + 1, close - open - 1));
-    while (stream)
-    {
-        float value = 0.0f;
-        stream >> value;
-        if (stream)
-        {
-            values.push_back(value);
-        }
-        char comma = 0;
-        stream >> comma;
-    }
-    return values;
-}
-
-std::vector<int> JsonIntArrayAfter(const std::string& text, const std::string& key)
-{
-    std::vector<int> values;
-    const size_t keyPos = text.find(key);
-    if (keyPos == std::string::npos)
-    {
-        return values;
-    }
-
-    const size_t open = text.find('[', keyPos);
-    const size_t close = text.find(']', open);
-    if (open == std::string::npos || close == std::string::npos)
-    {
-        return values;
-    }
-
-    std::stringstream stream(text.substr(open + 1, close - open - 1));
-    while (stream)
-    {
-        int value = 0;
-        stream >> value;
-        if (stream)
-        {
-            values.push_back(value);
-        }
-        char comma = 0;
-        stream >> comma;
-    }
-    return values;
-}
-
-size_t FindMatchingBrace(const std::string& text, size_t objectStart);
-
-std::optional<std::string> JsonArrayObject(const std::string& text, const std::string& arrayKey, int index)
-{
-    size_t keyPos = std::string::npos;
-    int objectDepth = 0;
-    int arrayDepth = 0;
-    bool inString = false;
-    bool escaped = false;
-    for (size_t i = 0; i < text.size(); ++i)
-    {
-        const char c = text[i];
-        if (inString)
-        {
-            if (escaped)
-            {
-                escaped = false;
-            }
-            else if (c == '\\')
-            {
-                escaped = true;
-            }
-            else if (c == '"')
-            {
-                inString = false;
-            }
-            continue;
-        }
-
-        if (c == '"')
-        {
-            if (objectDepth == 1 && arrayDepth == 0 && text.compare(i, arrayKey.size(), arrayKey) == 0)
-            {
-                keyPos = i;
-                break;
-            }
-            inString = true;
-        }
-        else if (c == '{')
-        {
-            ++objectDepth;
-        }
-        else if (c == '}')
-        {
-            --objectDepth;
-        }
-        else if (c == '[')
-        {
-            ++arrayDepth;
-        }
-        else if (c == ']')
-        {
-            --arrayDepth;
-        }
-    }
-
-    if (keyPos == std::string::npos)
-    {
-        return std::nullopt;
-    }
-
-    const size_t arrayStart = text.find('[', keyPos);
-    if (arrayStart == std::string::npos)
-    {
-        return std::nullopt;
-    }
-
-    int current = 0;
-    int depth = 0;
-    inString = false;
-    escaped = false;
-    for (size_t i = arrayStart; i < text.size(); ++i)
-    {
-        const char c = text[i];
-        if (inString)
-        {
-            if (escaped)
-            {
-                escaped = false;
-            }
-            else if (c == '\\')
-            {
-                escaped = true;
-            }
-            else if (c == '"')
-            {
-                inString = false;
-            }
-            continue;
-        }
-
-        if (c == '"')
-        {
-            inString = true;
-        }
-        else if (c == '[')
-        {
-            ++depth;
-        }
-        else if (c == ']')
-        {
-            --depth;
-            if (depth == 0)
-            {
-                break;
-            }
-        }
-        else if (c == '{' && depth == 1)
-        {
-            const size_t objectEnd = FindMatchingBrace(text, i);
-            if (objectEnd == std::string::npos)
-            {
-                return std::nullopt;
-            }
-
-            if (current == index)
-            {
-                return text.substr(i, objectEnd - i + 1);
-            }
-
-            ++current;
-            i = objectEnd;
-        }
-    }
-    return std::nullopt;
-}
-
-std::vector<std::string> JsonObjectArrayAfter(const std::string& text, const std::string& arrayKey)
-{
-    std::vector<std::string> objects;
-    const size_t keyPos = text.find(arrayKey);
-    if (keyPos == std::string::npos)
-    {
-        return objects;
-    }
-
-    const size_t arrayStart = text.find('[', keyPos);
-    if (arrayStart == std::string::npos)
-    {
-        return objects;
-    }
-
-    int depth = 0;
-    bool inString = false;
-    bool escaped = false;
-    for (size_t i = arrayStart; i < text.size(); ++i)
-    {
-        const char c = text[i];
-        if (inString)
-        {
-            if (escaped)
-            {
-                escaped = false;
-            }
-            else if (c == '\\')
-            {
-                escaped = true;
-            }
-            else if (c == '"')
-            {
-                inString = false;
-            }
-            continue;
-        }
-
-        if (c == '"')
-        {
-            inString = true;
-        }
-        else if (c == '[')
-        {
-            ++depth;
-        }
-        else if (c == ']')
-        {
-            --depth;
-            if (depth == 0)
-            {
-                break;
-            }
-        }
-        else if (c == '{' && depth == 1)
-        {
-            const size_t objectEnd = FindMatchingBrace(text, i);
-            if (objectEnd == std::string::npos)
-            {
-                break;
-            }
-            objects.push_back(text.substr(i, objectEnd - i + 1));
-            i = objectEnd;
-        }
-    }
-    return objects;
-}
-
-GltfAccessor ParseAccessor(const std::string& json, int index)
-{
-    const std::optional<std::string> object = JsonArrayObject(json, "\"accessors\"", index);
-    if (!object)
-    {
-        return {};
-    }
-    GltfAccessor accessor;
-    accessor.bufferView = JsonIntAfter(*object, "\"bufferView\"");
-    accessor.componentType = JsonIntAfter(*object, "\"componentType\"");
-    accessor.count = JsonIntAfter(*object, "\"count\"");
-    accessor.byteOffset = JsonIntAfter(*object, "\"byteOffset\"", 0, 0);
-    accessor.normalized = JsonBoolAfter(*object, "\"normalized\"", 0, false);
-    accessor.type = JsonStringAfter(*object, "\"type\"");
-    return accessor;
-}
-
-GltfBufferView ParseBufferView(const std::string& json, int index)
-{
-    const std::optional<std::string> object = JsonArrayObject(json, "\"bufferViews\"", index);
-    if (!object)
-    {
-        return {};
-    }
-    GltfBufferView view;
-    view.buffer = JsonIntAfter(*object, "\"buffer\"");
-    view.byteOffset = JsonIntAfter(*object, "\"byteOffset\"", 0, 0);
-    view.byteLength = JsonIntAfter(*object, "\"byteLength\"", 0, 0);
-    view.byteStride = JsonIntAfter(*object, "\"byteStride\"", 0, 0);
-    return view;
-}
-
-int AttributeAccessorIndex(const std::string& json, const std::string& attribute)
-{
-    const size_t pos = json.find("\"" + attribute + "\"");
-    if (pos == std::string::npos)
-    {
-        return -1;
-    }
-    return JsonIntAfter(json, "\"" + attribute + "\"", pos, -1);
-}
-
-template <typename T>
-const T* BufferAt(const std::vector<uint8_t>& bytes, size_t offset)
-{
-    if (offset + sizeof(T) > bytes.size())
+    if (accessor.bufferView < 0)
     {
         return nullptr;
     }
-    return reinterpret_cast<const T*>(bytes.data() + offset);
-}
-
-bool BufferRangeAvailable(const std::vector<uint8_t>& bytes, size_t offset, size_t byteCount)
-{
-    return offset <= bytes.size() && byteCount <= bytes.size() - offset;
-}
-
-uint32_t ReadLe32(const std::vector<uint8_t>& bytes, size_t offset)
-{
-    if (offset + sizeof(uint32_t) > bytes.size())
+    if (static_cast<size_t>(accessor.bufferView) >= model.bufferViews.size())
     {
+        return nullptr;
+    }
+    const tinygltf::BufferView& view = model.bufferViews[static_cast<size_t>(accessor.bufferView)];
+    if (view.buffer < 0 || static_cast<size_t>(view.buffer) >= model.buffers.size())
+    {
+        return nullptr;
+    }
+
+    // tinygltf's ByteStride resolves the tightly-packed default (byteStride==0)
+    // to componentSize * numComponents and returns -1 for invalid layouts.
+    const int stride = accessor.ByteStride(view);
+    if (stride <= 0)
+    {
+        return nullptr;
+    }
+    outStride = static_cast<size_t>(stride);
+
+    const int componentSize = tinygltf::GetComponentSizeInBytes(static_cast<uint32_t>(accessor.componentType));
+    const int numComponents = tinygltf::GetNumComponentsInType(static_cast<uint32_t>(accessor.type));
+    if (componentSize <= 0 || numComponents <= 0)
+    {
+        return nullptr;
+    }
+    const size_t elementSize = static_cast<size_t>(componentSize) * static_cast<size_t>(numComponents);
+
+    const tinygltf::Buffer& buffer = model.buffers[static_cast<size_t>(view.buffer)];
+    const size_t offset = static_cast<size_t>(view.byteOffset) + accessor.byteOffset;
+    if (accessor.count > 0)
+    {
+        const size_t needed = offset + outStride * (accessor.count - 1) + elementSize;
+        if (needed > buffer.data.size())
+        {
+            return nullptr;
+        }
+    }
+    return buffer.data.data() + offset;
+}
+
+float DecodeComponent(const unsigned char* data, int componentType, bool normalized)
+{
+    switch (componentType)
+    {
+    case 5126: // FLOAT
+    {
+        float value = 0.0f;
+        std::memcpy(&value, data, sizeof(float));
+        return value;
+    }
+    case 5120: // BYTE
+    {
+        int8_t value = 0;
+        std::memcpy(&value, data, sizeof(int8_t));
+        return normalized ? std::max(static_cast<float>(value) / 127.0f, -1.0f) : static_cast<float>(value);
+    }
+    case 5121: // UNSIGNED_BYTE
+    {
+        uint8_t value = 0;
+        std::memcpy(&value, data, sizeof(uint8_t));
+        return normalized ? static_cast<float>(value) / 255.0f : static_cast<float>(value);
+    }
+    case 5122: // SHORT
+    {
+        int16_t value = 0;
+        std::memcpy(&value, data, sizeof(int16_t));
+        return normalized ? std::max(static_cast<float>(value) / 32767.0f, -1.0f) : static_cast<float>(value);
+    }
+    case 5123: // UNSIGNED_SHORT
+    {
+        uint16_t value = 0;
+        std::memcpy(&value, data, sizeof(uint16_t));
+        return normalized ? static_cast<float>(value) / 65535.0f : static_cast<float>(value);
+    }
+    case 5125: // UNSIGNED_INT (never normalized in glTF)
+    {
+        uint32_t value = 0;
+        std::memcpy(&value, data, sizeof(uint32_t));
+        return static_cast<float>(value);
+    }
+    default:
+        return 0.0f;
+    }
+}
+
+void ReadAttribute(
+    const unsigned char* element,
+    int componentType,
+    bool normalized,
+    int numComponents,
+    float* outValues)
+{
+    const int componentSize = tinygltf::GetComponentSizeInBytes(static_cast<uint32_t>(componentType));
+    for (int c = 0; c < numComponents; ++c)
+    {
+        outValues[c] = DecodeComponent(
+            element + static_cast<size_t>(c) * static_cast<size_t>(componentSize),
+            componentType,
+            normalized);
+    }
+}
+
+uint32_t ReadIndex(const unsigned char* data, int componentType)
+{
+    switch (componentType)
+    {
+    case 5121: // UNSIGNED_BYTE
+    {
+        uint8_t value = 0;
+        std::memcpy(&value, data, sizeof(uint8_t));
+        return static_cast<uint32_t>(value);
+    }
+    case 5123: // UNSIGNED_SHORT
+    {
+        uint16_t value = 0;
+        std::memcpy(&value, data, sizeof(uint16_t));
+        return static_cast<uint32_t>(value);
+    }
+    case 5125: // UNSIGNED_INT
+    {
+        uint32_t value = 0;
+        std::memcpy(&value, data, sizeof(uint32_t));
+        return value;
+    }
+    default:
         return 0;
     }
-
-    uint32_t value = 0;
-    std::memcpy(&value, bytes.data() + offset, sizeof(value));
-    return value;
 }
 
-bool LoadGlb(const std::wstring& path, std::string& outJson, std::vector<uint8_t>& outBinary)
+DirectX::XMMATRIX NodeLocalMatrix(const tinygltf::Node& node)
 {
-    const std::vector<uint8_t> bytes = ReadBinaryFile(path);
-    if (bytes.size() < 20 || ReadLe32(bytes, 0) != 0x46546C67u || ReadLe32(bytes, 4) != 2)
+    // Matrix branch: glTF stores the 16 doubles in column-major order. Preserve
+    // the existing latent behaviour - load them row-by-row into XMFLOAT4X4 and
+    // transpose. (This M^T handling is a known quirk, deferred to Phase 4.)
+    if (node.matrix.size() == 16)
     {
-        return false;
+        DirectX::XMFLOAT4X4 matrix{
+            static_cast<float>(node.matrix[0]), static_cast<float>(node.matrix[1]), static_cast<float>(node.matrix[2]), static_cast<float>(node.matrix[3]),
+            static_cast<float>(node.matrix[4]), static_cast<float>(node.matrix[5]), static_cast<float>(node.matrix[6]), static_cast<float>(node.matrix[7]),
+            static_cast<float>(node.matrix[8]), static_cast<float>(node.matrix[9]), static_cast<float>(node.matrix[10]), static_cast<float>(node.matrix[11]),
+            static_cast<float>(node.matrix[12]), static_cast<float>(node.matrix[13]), static_cast<float>(node.matrix[14]), static_cast<float>(node.matrix[15])};
+        return DirectX::XMMatrixTranspose(DirectX::XMLoadFloat4x4(&matrix));
     }
 
-    size_t offset = 12;
-    while (offset + 8 <= bytes.size())
-    {
-        const uint32_t chunkLength = ReadLe32(bytes, offset);
-        const uint32_t chunkType = ReadLe32(bytes, offset + 4);
-        offset += 8;
-        if (offset + chunkLength > bytes.size())
-        {
-            return false;
-        }
-
-        if (chunkType == 0x4E4F534Au)
-        {
-            outJson.assign(reinterpret_cast<const char*>(bytes.data() + offset), chunkLength);
-            while (!outJson.empty() && (outJson.back() == '\0' || outJson.back() == ' '))
-            {
-                outJson.pop_back();
-            }
-        }
-        else if (chunkType == 0x004E4942u)
-        {
-            outBinary.assign(bytes.begin() + static_cast<std::ptrdiff_t>(offset), bytes.begin() + static_cast<std::ptrdiff_t>(offset + chunkLength));
-        }
-
-        offset += chunkLength;
-    }
-
-    return !outJson.empty() && !outBinary.empty();
-}
-
-size_t FindMatchingBrace(const std::string& text, size_t objectStart)
-{
-    int depth = 0;
-    bool inString = false;
-    bool escaped = false;
-    for (size_t i = objectStart; i < text.size(); ++i)
-    {
-        const char c = text[i];
-        if (inString)
-        {
-            if (escaped)
-            {
-                escaped = false;
-            }
-            else if (c == '\\')
-            {
-                escaped = true;
-            }
-            else if (c == '"')
-            {
-                inString = false;
-            }
-            continue;
-        }
-
-        if (c == '"')
-        {
-            inString = true;
-        }
-        else if (c == '{')
-        {
-            ++depth;
-        }
-        else if (c == '}')
-        {
-            --depth;
-            if (depth == 0)
-            {
-                return i;
-            }
-        }
-    }
-    return std::string::npos;
-}
-
-std::optional<std::string> ObjectContaining(const std::string& text, size_t position)
-{
-    size_t search = position;
-    while (search != std::string::npos)
-    {
-        const size_t candidate = text.rfind('{', search);
-        if (candidate == std::string::npos)
-        {
-            return std::nullopt;
-        }
-
-        const size_t end = FindMatchingBrace(text, candidate);
-        if (end != std::string::npos && candidate <= position && position <= end)
-        {
-            return text.substr(candidate, end - candidate + 1);
-        }
-
-        if (candidate == 0)
-        {
-            break;
-        }
-        search = candidate - 1;
-    }
-    return std::nullopt;
-}
-
-std::vector<std::string> GltfPrimitiveObjects(const std::string& json)
-{
-    std::vector<std::string> primitives;
-    size_t pos = 0;
-    while ((pos = json.find("\"attributes\"", pos)) != std::string::npos)
-    {
-        if (std::optional<std::string> primitive = ObjectContaining(json, pos))
-        {
-            if (primitive->find("\"POSITION\"") != std::string::npos)
-            {
-                primitives.push_back(*primitive);
-            }
-        }
-        pos += 12;
-    }
-    return primitives;
-}
-
-DirectX::XMMATRIX GltfMatrixFromValues(const std::vector<float>& values)
-{
-    if (values.size() != 16)
-    {
-        return DirectX::XMMatrixIdentity();
-    }
-
-    DirectX::XMFLOAT4X4 matrix{
-        values[0], values[1], values[2], values[3],
-        values[4], values[5], values[6], values[7],
-        values[8], values[9], values[10], values[11],
-        values[12], values[13], values[14], values[15]};
-    return DirectX::XMMatrixTranspose(DirectX::XMLoadFloat4x4(&matrix));
-}
-
-DirectX::XMMATRIX ParseNodeLocalMatrix(const std::string& node)
-{
-    const std::vector<float> matrixValues = JsonFloatArrayValuesAfter(node, "\"matrix\"");
-    if (matrixValues.size() == 16)
-    {
-        return GltfMatrixFromValues(matrixValues);
-    }
-
+    // TRS branch: identical construction and composition order as before.
     DirectX::XMFLOAT3 translation{0.0f, 0.0f, 0.0f};
     DirectX::XMFLOAT4 rotation{0.0f, 0.0f, 0.0f, 1.0f};
     DirectX::XMFLOAT3 scale{1.0f, 1.0f, 1.0f};
 
-    const std::vector<float> translationValues = JsonFloatArrayValuesAfter(node, "\"translation\"");
-    if (translationValues.size() >= 3)
+    if (node.translation.size() >= 3)
     {
-        translation = DirectX::XMFLOAT3(translationValues[0], translationValues[1], translationValues[2]);
+        translation = DirectX::XMFLOAT3(
+            static_cast<float>(node.translation[0]),
+            static_cast<float>(node.translation[1]),
+            static_cast<float>(node.translation[2]));
     }
-
-    const std::vector<float> rotationValues = JsonFloatArrayValuesAfter(node, "\"rotation\"");
-    if (rotationValues.size() >= 4)
+    if (node.rotation.size() >= 4)
     {
-        rotation = DirectX::XMFLOAT4(rotationValues[0], rotationValues[1], rotationValues[2], rotationValues[3]);
+        rotation = DirectX::XMFLOAT4(
+            static_cast<float>(node.rotation[0]),
+            static_cast<float>(node.rotation[1]),
+            static_cast<float>(node.rotation[2]),
+            static_cast<float>(node.rotation[3]));
     }
-
-    const std::vector<float> scaleValues = JsonFloatArrayValuesAfter(node, "\"scale\"");
-    if (scaleValues.size() >= 3)
+    if (node.scale.size() >= 3)
     {
-        scale = DirectX::XMFLOAT3(scaleValues[0], scaleValues[1], scaleValues[2]);
+        scale = DirectX::XMFLOAT3(
+            static_cast<float>(node.scale[0]),
+            static_cast<float>(node.scale[1]),
+            static_cast<float>(node.scale[2]));
     }
 
     return DirectX::XMMatrixScaling(scale.x, scale.y, scale.z) *
@@ -754,39 +303,36 @@ void ComputeNodeWorld(std::vector<GltfNode>& nodes, int nodeIndex, const DirectX
     }
 }
 
-std::vector<GltfNode> ParseGltfNodes(const std::string& json)
+std::vector<GltfNode> BuildGltfNodes(const tinygltf::Model& model)
 {
     std::vector<GltfNode> nodes;
-    for (int i = 0;; ++i)
+    nodes.reserve(model.nodes.size());
+    for (const tinygltf::Node& src : model.nodes)
     {
-        const std::optional<std::string> nodeObject = JsonArrayObject(json, "\"nodes\"", i);
-        if (!nodeObject)
-        {
-            break;
-        }
-
         GltfNode node;
-        node.mesh = JsonIntAfter(*nodeObject, "\"mesh\"", 0, -1);
-        node.skin = JsonIntAfter(*nodeObject, "\"skin\"", 0, -1);
-        node.children = JsonIntArrayAfter(*nodeObject, "\"children\"");
-        node.local = ParseNodeLocalMatrix(*nodeObject);
+        node.mesh = src.mesh;
+        node.skin = src.skin;
+        node.children = src.children;
+        node.local = NodeLocalMatrix(src);
         nodes.push_back(node);
     }
 
-    for (GltfNode& node : nodes)
+    // Root fix: drive the traversal from the default scene's root node list
+    // instead of the old hasParent heuristic.
+    const int sceneIndex = model.defaultScene >= 0
+        ? model.defaultScene
+        : (model.scenes.empty() ? -1 : 0);
+    if (sceneIndex >= 0 && sceneIndex < static_cast<int>(model.scenes.size()))
     {
-        for (int child : node.children)
+        for (int root : model.scenes[static_cast<size_t>(sceneIndex)].nodes)
         {
-            if (child >= 0 && child < static_cast<int>(nodes.size()))
-            {
-                nodes[static_cast<size_t>(child)].hasParent = true;
-            }
+            ComputeNodeWorld(nodes, root, DirectX::XMMatrixIdentity());
         }
     }
-
-    for (int i = 0; i < static_cast<int>(nodes.size()); ++i)
+    else
     {
-        if (!nodes[static_cast<size_t>(i)].hasParent)
+        // No scene at all: treat every node as a root so meshes stay reachable.
+        for (int i = 0; i < static_cast<int>(nodes.size()); ++i)
         {
             ComputeNodeWorld(nodes, i, DirectX::XMMatrixIdentity());
         }
@@ -794,259 +340,229 @@ std::vector<GltfNode> ParseGltfNodes(const std::string& json)
     return nodes;
 }
 
-std::vector<std::string> MeshPrimitiveObjects(const std::string& json, int meshIndex)
+void ParseEmbeddedImages(const tinygltf::Model& model, Mesh& outMesh)
 {
-    const std::optional<std::string> meshObject = JsonArrayObject(json, "\"meshes\"", meshIndex);
-    if (!meshObject)
+    for (const tinygltf::Image& image : model.images)
     {
-        return {};
-    }
-    return JsonObjectArrayAfter(*meshObject, "\"primitives\"");
-}
-
-std::vector<int> ParseTextureSources(const std::string& json)
-{
-    std::vector<int> sources;
-    for (int i = 0;; ++i)
-    {
-        const std::optional<std::string> texture = JsonArrayObject(json, "\"textures\"", i);
-        if (!texture)
-        {
-            break;
-        }
-        sources.push_back(JsonIntAfter(*texture, "\"source\"", 0, -1));
-    }
-    return sources;
-}
-
-void ParseEmbeddedImages(const std::string& json, const std::vector<uint8_t>& bytes, Mesh& outMesh)
-{
-    for (int i = 0;; ++i)
-    {
-        const std::optional<std::string> image = JsonArrayObject(json, "\"images\"", i);
-        if (!image)
-        {
-            break;
-        }
-
-        const int bufferViewIndex = JsonIntAfter(*image, "\"bufferView\"", 0, -1);
         EmbeddedImage embedded;
-        embedded.name = JsonStringAfter(*image, "\"name\"");
-        embedded.mimeType = JsonStringAfter(*image, "\"mimeType\"");
-        if (bufferViewIndex < 0)
+        embedded.name = image.name;
+        embedded.mimeType = image.mimeType;
+
+        // stb decoding is disabled (TINYGLTF_NO_STB_IMAGE); copy the raw
+        // bufferView bytes and let ResourceManager decode them later.
+        if (image.bufferView >= 0 && static_cast<size_t>(image.bufferView) < model.bufferViews.size())
         {
-            outMesh.embeddedImages.push_back(std::move(embedded));
-            continue;
+            const tinygltf::BufferView& view = model.bufferViews[static_cast<size_t>(image.bufferView)];
+            if (view.buffer >= 0 && static_cast<size_t>(view.buffer) < model.buffers.size())
+            {
+                const tinygltf::Buffer& buffer = model.buffers[static_cast<size_t>(view.buffer)];
+                const size_t offset = static_cast<size_t>(view.byteOffset);
+                const size_t length = static_cast<size_t>(view.byteLength);
+                if (length > 0 && offset + length <= buffer.data.size())
+                {
+                    embedded.bytes.assign(
+                        buffer.data.begin() + static_cast<std::ptrdiff_t>(offset),
+                        buffer.data.begin() + static_cast<std::ptrdiff_t>(offset + length));
+                }
+            }
         }
 
-        const GltfBufferView view = ParseBufferView(json, bufferViewIndex);
-        if (view.byteLength <= 0 || !BufferRangeAvailable(bytes, static_cast<size_t>(view.byteOffset), static_cast<size_t>(view.byteLength)))
-        {
-            outMesh.embeddedImages.push_back(std::move(embedded));
-            continue;
-        }
-
-        embedded.bytes.assign(bytes.begin() + view.byteOffset, bytes.begin() + view.byteOffset + view.byteLength);
         outMesh.embeddedImages.push_back(std::move(embedded));
     }
 }
 
-void ParseImportedMaterials(const std::string& json, Mesh& outMesh)
+void ParseImportedMaterials(const tinygltf::Model& model, Mesh& outMesh)
 {
-    const std::vector<int> textureSources = ParseTextureSources(json);
-    for (int i = 0;; ++i)
+    for (const tinygltf::Material& material : model.materials)
     {
-        const std::optional<std::string> material = JsonArrayObject(json, "\"materials\"", i);
-        if (!material)
-        {
-            break;
-        }
-
         ImportedMaterial imported;
-        imported.name = JsonStringAfter(*material, "\"name\"");
-        float color[4]{1.0f, 1.0f, 1.0f, 1.0f};
-        if (JsonFloatArrayAfter(*material, "\"baseColorFactor\"", color, 4))
+        imported.name = material.name;
+
+        const std::vector<double>& baseColorFactor = material.pbrMetallicRoughness.baseColorFactor;
+        if (baseColorFactor.size() >= 4)
         {
-            imported.baseColor = DirectX::XMFLOAT4(color[0], color[1], color[2], color[3]);
+            imported.baseColor = DirectX::XMFLOAT4(
+                static_cast<float>(baseColorFactor[0]),
+                static_cast<float>(baseColorFactor[1]),
+                static_cast<float>(baseColorFactor[2]),
+                static_cast<float>(baseColorFactor[3]));
         }
 
-        const size_t textureKey = material->find("\"baseColorTexture\"");
-        if (textureKey != std::string::npos)
+        const int baseColorTextureIndex = material.pbrMetallicRoughness.baseColorTexture.index;
+        if (baseColorTextureIndex >= 0 && static_cast<size_t>(baseColorTextureIndex) < model.textures.size())
         {
-            const int textureIndex = JsonIntAfter(*material, "\"index\"", textureKey, -1);
-            if (textureIndex >= 0 && textureIndex < static_cast<int>(textureSources.size()))
+            const int source = model.textures[static_cast<size_t>(baseColorTextureIndex)].source;
+            if (source >= 0)
             {
-                imported.baseColorImage = textureSources[static_cast<size_t>(textureIndex)];
+                imported.baseColorImage = source;
             }
         }
 
-        const std::string alphaMode = JsonStringAfter(*material, "\"alphaMode\"");
-        imported.alphaMode = alphaMode.empty() ? "OPAQUE" : alphaMode;
-        imported.alphaBlend = alphaMode == "BLEND";
-        imported.alphaMask = alphaMode == "MASK";
-        imported.unlit = material->find("\"KHR_materials_unlit\"") != std::string::npos ||
-            material->find("\"VRMC_materials_mtoon\"") != std::string::npos;
-        imported.alphaCutoff = JsonFloatAfter(*material, "\"alphaCutoff\"", 0, 0.5f);
+        imported.alphaMode = material.alphaMode.empty() ? "OPAQUE" : material.alphaMode;
+        imported.alphaBlend = material.alphaMode == "BLEND";
+        imported.alphaMask = material.alphaMode == "MASK";
+        imported.unlit = material.extensions.count("KHR_materials_unlit") > 0 ||
+            material.extensions.count("VRMC_materials_mtoon") > 0;
+        imported.alphaCutoff = static_cast<float>(material.alphaCutoff);
         if (imported.alphaMask)
         {
             imported.alphaCutoff = std::min(imported.alphaCutoff, 0.08f);
         }
-        outMesh.importedMaterials.push_back(imported);
+
+        outMesh.importedMaterials.push_back(std::move(imported));
     }
 }
 
 bool AppendGltfPrimitive(
-    const std::string& json,
-    const std::vector<uint8_t>& bytes,
-    const std::string& primitive,
+    const tinygltf::Model& model,
+    const tinygltf::Primitive& primitive,
     const DirectX::XMMATRIX& nodeWorld,
     Mesh& outMesh)
 {
-    const int positionAccessorIndex = JsonIntAfter(primitive, "\"POSITION\"", 0, -1);
-    if (positionAccessorIndex < 0)
+    const auto positionIt = primitive.attributes.find("POSITION");
+    if (positionIt == primitive.attributes.end() || positionIt->second < 0)
+    {
+        return false;
+    }
+    if (static_cast<size_t>(positionIt->second) >= model.accessors.size())
     {
         return false;
     }
 
-    const int normalAccessorIndex = JsonIntAfter(primitive, "\"NORMAL\"", 0, -1);
-    const int uvAccessorIndex = JsonIntAfter(primitive, "\"TEXCOORD_0\"", 0, -1);
-    const int indicesAccessorIndex = JsonIntAfter(primitive, "\"indices\"", 0, -1);
-    const int materialIndex = JsonIntAfter(primitive, "\"material\"", 0, -1);
+    const tinygltf::Accessor& positionAccessor = model.accessors[static_cast<size_t>(positionIt->second)];
+    if (positionAccessor.count <= 0 || positionAccessor.type != TINYGLTF_TYPE_VEC3)
+    {
+        return false;
+    }
+
+    size_t positionStride = 0;
+    const unsigned char* positionData = AccessorData(model, positionAccessor, positionStride);
+    if (positionData == nullptr)
+    {
+        return false;
+    }
+
+    const int materialIndex = primitive.material;
     DirectX::XMFLOAT4 primitiveColor{1.0f, 1.0f, 1.0f, 1.0f};
-    if (materialIndex >= 0 && materialIndex < static_cast<int>(outMesh.importedMaterials.size()))
+    if (materialIndex >= 0 && static_cast<size_t>(materialIndex) < outMesh.importedMaterials.size())
     {
         primitiveColor = outMesh.importedMaterials[static_cast<size_t>(materialIndex)].baseColor;
     }
-    else if (materialIndex >= 0)
-    {
-        if (const std::optional<std::string> material = JsonArrayObject(json, "\"materials\"", materialIndex))
-        {
-            float values[4]{1.0f, 1.0f, 1.0f, 1.0f};
-            if (JsonFloatArrayAfter(*material, "\"baseColorFactor\"", values, 4))
-            {
-                primitiveColor = DirectX::XMFLOAT4(values[0], values[1], values[2], values[3]);
-            }
-        }
-    }
 
-    const GltfAccessor positionAccessor = ParseAccessor(json, positionAccessorIndex);
-    const GltfAccessor normalAccessor = normalAccessorIndex >= 0 ? ParseAccessor(json, normalAccessorIndex) : GltfAccessor{};
-    const GltfAccessor uvAccessor = uvAccessorIndex >= 0 ? ParseAccessor(json, uvAccessorIndex) : GltfAccessor{};
-    const GltfBufferView positionView = ParseBufferView(json, positionAccessor.bufferView);
-    const GltfBufferView normalView = normalAccessor.bufferView >= 0 ? ParseBufferView(json, normalAccessor.bufferView) : GltfBufferView{};
-    const GltfBufferView uvView = uvAccessor.bufferView >= 0 ? ParseBufferView(json, uvAccessor.bufferView) : GltfBufferView{};
+    const auto normalIt = primitive.attributes.find("NORMAL");
+    const tinygltf::Accessor* normalAccessor =
+        (normalIt != primitive.attributes.end() && normalIt->second >= 0 &&
+         static_cast<size_t>(normalIt->second) < model.accessors.size())
+            ? &model.accessors[static_cast<size_t>(normalIt->second)]
+            : nullptr;
+    size_t normalStride = 0;
+    const unsigned char* normalData =
+        (normalAccessor != nullptr && normalAccessor->type == TINYGLTF_TYPE_VEC3)
+            ? AccessorData(model, *normalAccessor, normalStride)
+            : nullptr;
 
-    if (positionAccessor.componentType != 5126 || positionAccessor.type != "VEC3" || positionAccessor.count <= 0)
-    {
-        return false;
-    }
+    const auto uvIt = primitive.attributes.find("TEXCOORD_0");
+    const tinygltf::Accessor* uvAccessor =
+        (uvIt != primitive.attributes.end() && uvIt->second >= 0 &&
+         static_cast<size_t>(uvIt->second) < model.accessors.size())
+            ? &model.accessors[static_cast<size_t>(uvIt->second)]
+            : nullptr;
+    size_t uvStride = 0;
+    const unsigned char* uvData =
+        (uvAccessor != nullptr && uvAccessor->type == TINYGLTF_TYPE_VEC2)
+            ? AccessorData(model, *uvAccessor, uvStride)
+            : nullptr;
 
-    const bool hasNormals = normalAccessor.componentType == 5126 && normalAccessor.type == "VEC3";
-    const bool hasTexcoords = uvAccessor.componentType == 5126 && uvAccessor.type == "VEC2";
-    const int positionStride = positionView.byteStride > 0 ? positionView.byteStride : static_cast<int>(sizeof(float) * 3);
-    const int normalStride = normalView.byteStride > 0 ? normalView.byteStride : static_cast<int>(sizeof(float) * 3);
-    const int uvStride = uvView.byteStride > 0 ? uvView.byteStride : static_cast<int>(sizeof(float) * 2);
     const uint32_t baseVertex = static_cast<uint32_t>(outMesh.vertices.size());
     const uint32_t indexStart = static_cast<uint32_t>(outMesh.indices.size());
-    outMesh.vertices.reserve(outMesh.vertices.size() + static_cast<size_t>(positionAccessor.count));
+    outMesh.vertices.reserve(outMesh.vertices.size() + positionAccessor.count);
 
+    // normalMatrix is the inverse-transpose of nodeWorld, matching the previous
+    // implementation exactly (including its non-standard handling).
     const DirectX::XMMATRIX normalMatrix = DirectX::XMMatrixTranspose(DirectX::XMMatrixInverse(nullptr, nodeWorld));
-    for (int i = 0; i < positionAccessor.count; ++i)
+
+    for (size_t i = 0; i < positionAccessor.count; ++i)
     {
-        const size_t positionOffset = static_cast<size_t>(positionView.byteOffset + positionAccessor.byteOffset + i * positionStride);
-        if (!BufferRangeAvailable(bytes, positionOffset, sizeof(float) * 3))
-        {
-            return false;
-        }
-        const float* position = reinterpret_cast<const float*>(bytes.data() + positionOffset);
+        float positionValues[3] = {0.0f, 0.0f, 0.0f};
+        ReadAttribute(
+            positionData + i * positionStride,
+            positionAccessor.componentType,
+            positionAccessor.normalized,
+            3,
+            positionValues);
 
         Vertex vertex{};
         DirectX::XMStoreFloat3(
             &vertex.position,
-            DirectX::XMVector3TransformCoord(DirectX::XMVectorSet(position[0], position[1], position[2], 1.0f), nodeWorld));
+            DirectX::XMVector3TransformCoord(
+                DirectX::XMVectorSet(positionValues[0], positionValues[1], positionValues[2], 1.0f), nodeWorld));
         vertex.normal = DirectX::XMFLOAT3(0.0f, 1.0f, 0.0f);
         vertex.uv = DirectX::XMFLOAT2(0.0f, 0.0f);
         vertex.color = primitiveColor;
 
-        if (hasNormals && i < normalAccessor.count)
+        if (normalData != nullptr && i < normalAccessor->count)
         {
-            const size_t normalOffset = static_cast<size_t>(normalView.byteOffset + normalAccessor.byteOffset + i * normalStride);
-            if (BufferRangeAvailable(bytes, normalOffset, sizeof(float) * 3))
-            {
-                const float* normal = reinterpret_cast<const float*>(bytes.data() + normalOffset);
-                const DirectX::XMVECTOR transformedNormal = DirectX::XMVector3Normalize(
-                    DirectX::XMVector3TransformNormal(DirectX::XMVectorSet(normal[0], normal[1], normal[2], 0.0f), normalMatrix));
-                DirectX::XMStoreFloat3(&vertex.normal, transformedNormal);
-            }
+            float normalValues[3] = {0.0f, 0.0f, 0.0f};
+            ReadAttribute(
+                normalData + i * normalStride,
+                normalAccessor->componentType,
+                normalAccessor->normalized,
+                3,
+                normalValues);
+            const DirectX::XMVECTOR transformedNormal = DirectX::XMVector3Normalize(
+                DirectX::XMVector3TransformNormal(
+                    DirectX::XMVectorSet(normalValues[0], normalValues[1], normalValues[2], 0.0f), normalMatrix));
+            DirectX::XMStoreFloat3(&vertex.normal, transformedNormal);
         }
 
-        if (hasTexcoords && i < uvAccessor.count)
+        if (uvData != nullptr && i < uvAccessor->count)
         {
-            const size_t uvOffset = static_cast<size_t>(uvView.byteOffset + uvAccessor.byteOffset + i * uvStride);
-            if (BufferRangeAvailable(bytes, uvOffset, sizeof(float) * 2))
-            {
-                const float* uv = reinterpret_cast<const float*>(bytes.data() + uvOffset);
-                vertex.uv = DirectX::XMFLOAT2(uv[0], uv[1]);
-            }
+            float uvValues[2] = {0.0f, 0.0f};
+            ReadAttribute(
+                uvData + i * uvStride,
+                uvAccessor->componentType,
+                uvAccessor->normalized,
+                2,
+                uvValues);
+            vertex.uv = DirectX::XMFLOAT2(uvValues[0], uvValues[1]);
         }
 
         outMesh.vertices.push_back(vertex);
     }
 
-    outMesh.hasNormals = outMesh.hasNormals || hasNormals;
-    outMesh.hasTexcoords = outMesh.hasTexcoords || hasTexcoords;
+    outMesh.hasNormals = outMesh.hasNormals || (normalData != nullptr);
+    outMesh.hasTexcoords = outMesh.hasTexcoords || (uvData != nullptr);
 
-    if (indicesAccessorIndex >= 0)
+    if (primitive.indices >= 0 && static_cast<size_t>(primitive.indices) < model.accessors.size())
     {
-        const GltfAccessor indexAccessor = ParseAccessor(json, indicesAccessorIndex);
-        const GltfBufferView indexView = ParseBufferView(json, indexAccessor.bufferView);
-        outMesh.indices.reserve(outMesh.indices.size() + static_cast<size_t>(indexAccessor.count));
-        const size_t indexBaseOffset = static_cast<size_t>(indexView.byteOffset + indexAccessor.byteOffset);
-        for (int i = 0; i < indexAccessor.count; ++i)
+        const tinygltf::Accessor& indexAccessor = model.accessors[static_cast<size_t>(primitive.indices)];
+        size_t indexStride = 0;
+        const unsigned char* indexData = AccessorData(model, indexAccessor, indexStride);
+        if (indexData != nullptr)
         {
-            uint32_t index = 0;
-            if (indexAccessor.componentType == 5121)
+            outMesh.indices.reserve(outMesh.indices.size() + indexAccessor.count);
+            for (size_t i = 0; i < indexAccessor.count; ++i)
             {
-                const size_t offset = indexBaseOffset + static_cast<size_t>(i) * sizeof(uint8_t);
-                if (!BufferRangeAvailable(bytes, offset, sizeof(uint8_t)))
-                {
-                    return false;
-                }
-                index = bytes[offset];
+                const uint32_t index = ReadIndex(indexData + i * indexStride, indexAccessor.componentType);
+                outMesh.indices.push_back(baseVertex + index);
             }
-            else if (indexAccessor.componentType == 5123)
+        }
+        else
+        {
+            // Fall back to a degenerate-free sequential index list.
+            outMesh.indices.reserve(outMesh.indices.size() + positionAccessor.count);
+            for (size_t i = 0; i < positionAccessor.count; ++i)
             {
-                const size_t offset = indexBaseOffset + static_cast<size_t>(i) * sizeof(uint16_t);
-                if (!BufferRangeAvailable(bytes, offset, sizeof(uint16_t)))
-                {
-                    return false;
-                }
-                uint16_t value = 0;
-                std::memcpy(&value, bytes.data() + offset, sizeof(value));
-                index = value;
+                outMesh.indices.push_back(baseVertex + static_cast<uint32_t>(i));
             }
-            else if (indexAccessor.componentType == 5125)
-            {
-                const size_t offset = indexBaseOffset + static_cast<size_t>(i) * sizeof(uint32_t);
-                if (!BufferRangeAvailable(bytes, offset, sizeof(uint32_t)))
-                {
-                    return false;
-                }
-                std::memcpy(&index, bytes.data() + offset, sizeof(index));
-            }
-            else
-            {
-                return false;
-            }
-            outMesh.indices.push_back(baseVertex + index);
         }
     }
     else
     {
-        outMesh.indices.reserve(outMesh.indices.size() + static_cast<size_t>(positionAccessor.count));
-        for (uint32_t i = 0; i < static_cast<uint32_t>(positionAccessor.count); ++i)
+        outMesh.indices.reserve(outMesh.indices.size() + positionAccessor.count);
+        for (size_t i = 0; i < positionAccessor.count; ++i)
         {
-            outMesh.indices.push_back(baseVertex + i);
+            outMesh.indices.push_back(baseVertex + static_cast<uint32_t>(i));
         }
     }
 
@@ -1062,20 +578,16 @@ bool AppendGltfPrimitive(
     return true;
 }
 
-bool LoadGltfFromData(const std::wstring& path, const std::string& json, const std::vector<uint8_t>& bytes, Mesh& outMesh)
+bool LoadGltfFromModel(const std::wstring& path, const tinygltf::Model& model, Mesh& outMesh)
 {
-    if (json.empty() || bytes.empty())
-    {
-        return false;
-    }
-
     outMesh = {};
     outMesh.sourcePath = WideToUtf8(path);
     outMesh.displayName = std::filesystem::path(path).filename().string();
-    ParseEmbeddedImages(json, bytes, outMesh);
-    ParseImportedMaterials(json, outMesh);
 
-    const std::vector<GltfNode> nodes = ParseGltfNodes(json);
+    ParseEmbeddedImages(model, outMesh);
+    ParseImportedMaterials(model, outMesh);
+
+    const std::vector<GltfNode> nodes = BuildGltfNodes(model);
     outMesh.gltfNodeCount = static_cast<int>(nodes.size());
     for (const GltfNode& node : nodes)
     {
@@ -1084,14 +596,7 @@ bool LoadGltfFromData(const std::wstring& path, const std::string& json, const s
             ++outMesh.gltfMeshNodeCount;
         }
     }
-    for (int i = 0;; ++i)
-    {
-        if (!JsonArrayObject(json, "\"skins\"", i))
-        {
-            break;
-        }
-        ++outMesh.gltfSkinCount;
-    }
+    outMesh.gltfSkinCount = static_cast<int>(model.skins.size());
     if (outMesh.gltfSkinCount > 0)
     {
         outMesh.importNotes = "glTF skin data detected. Day2.5 imports this model as a stable static preview; animation/skinning is intentionally not applied yet.";
@@ -1102,37 +607,27 @@ bool LoadGltfFromData(const std::wstring& path, const std::string& json, const s
     }
 
     bool appendedAnyPrimitive = false;
-
     for (const GltfNode& node : nodes)
     {
-        if (node.mesh < 0)
+        if (node.mesh < 0 || static_cast<size_t>(node.mesh) >= model.meshes.size())
         {
             continue;
         }
 
-        const std::vector<std::string> primitives = MeshPrimitiveObjects(json, node.mesh);
-        for (const std::string& primitive : primitives)
+        const tinygltf::Mesh& mesh = model.meshes[static_cast<size_t>(node.mesh)];
+        for (const tinygltf::Primitive& primitive : mesh.primitives)
         {
-            appendedAnyPrimitive = AppendGltfPrimitive(json, bytes, primitive, node.world, outMesh) || appendedAnyPrimitive;
+            appendedAnyPrimitive = AppendGltfPrimitive(model, primitive, node.world, outMesh) || appendedAnyPrimitive;
         }
     }
 
     if (!appendedAnyPrimitive)
     {
-        const std::vector<std::string> primitives = GltfPrimitiveObjects(json);
-        if (primitives.empty())
-        {
-            return false;
-        }
-
-        for (const std::string& primitive : primitives)
-        {
-            appendedAnyPrimitive = AppendGltfPrimitive(json, bytes, primitive, DirectX::XMMatrixIdentity(), outMesh) || appendedAnyPrimitive;
-        }
+        return false;
     }
 
     UpdateMeshBounds(outMesh);
-    return appendedAnyPrimitive && !outMesh.vertices.empty() && !outMesh.indices.empty();
+    return !outMesh.vertices.empty() && !outMesh.indices.empty();
 }
 
 void GenerateNormals(Mesh& mesh)
@@ -1307,40 +802,33 @@ bool LoadObj(const std::wstring& path, Mesh& outMesh)
 
 bool LoadGltf(const std::wstring& path, Mesh& outMesh)
 {
-    std::string json;
-    std::vector<uint8_t> bytes;
+    const std::string utf8Path = WideToUtf8(path);
+
+    tinygltf::TinyGLTF loader;
+    tinygltf::Model model;
+    std::string err;
+    std::string warn;
+
     const std::filesystem::path fsPath(path);
     const std::wstring extension = fsPath.extension().wstring();
+    bool loaded = false;
     if (extension == L".glb" || extension == L".GLB")
     {
-        if (!LoadGlb(path, json, bytes))
-        {
-            return false;
-        }
+        loaded = loader.LoadBinaryFromFile(&model, &err, &warn, utf8Path);
     }
     else
     {
-        json = ReadTextFile(path);
-        if (json.empty())
-        {
-            return false;
-        }
-
-        const std::string uri = JsonStringAfter(json, "\"uri\"");
-        if (uri.empty())
-        {
-            return false;
-        }
-
-        const std::filesystem::path binPath = fsPath.parent_path() / std::filesystem::path(uri);
-        bytes = ReadBinaryFile(binPath.wstring());
-        if (bytes.empty())
-        {
-            return false;
-        }
+        // LoadASCIIFromFile resolves external .bin buffers relative to the
+        // .gltf file's directory automatically.
+        loaded = loader.LoadASCIIFromFile(&model, &err, &warn, utf8Path);
     }
 
-    if (!LoadGltfFromData(path, json, bytes, outMesh))
+    if (!loaded)
+    {
+        return false;
+    }
+
+    if (!LoadGltfFromModel(path, model, outMesh))
     {
         return false;
     }
