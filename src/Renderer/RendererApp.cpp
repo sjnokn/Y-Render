@@ -125,7 +125,13 @@ void RendererApp::KeyCallback(GLFWwindow* window, int key, int scancode, int act
     if (action == GLFW_PRESS)
     {
         app->m_input.SetKey(static_cast<UINT>(vk), true);
-        app->OnKeyPressed(vk);
+        // Discrete hotkeys (demo switch / F5 reload / F9 screenshot / turntable /
+        // camera reset) must not fire while the user is typing into an ImGui input
+        // field. ESC always passes through so the window can be closed from any focus.
+        if (vk == VK_ESCAPE || !ImGui::GetIO().WantCaptureKeyboard)
+        {
+            app->OnKeyPressed(vk);
+        }
     }
     else if (action == GLFW_RELEASE)
     {

@@ -3,6 +3,7 @@
 #include "Assets/ResourceManager.h"
 
 #include "Core/Platform.h"
+#include "Core/Log.h"
 
 #include <array>
 #include <algorithm>
@@ -97,8 +98,9 @@ void ResourceManager::UploadEmbeddedTextures(Mesh& mesh)
             image.width = texture.width;
             image.height = texture.height;
         }
-        catch (const std::exception&)
+        catch (const std::exception& e)
         {
+            LogError(std::string("Failed to decode embedded texture: ") + e.what());
             image.texture = 0;
             image.width = 0;
             image.height = 0;

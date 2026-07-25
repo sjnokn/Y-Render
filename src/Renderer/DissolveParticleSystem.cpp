@@ -7,15 +7,6 @@
 
 #include <glm/glm.hpp>
 
-// GL_POINT_SPRITE (0x8861) was removed from the OpenGL 3.3 core profile, so the
-// core-profile glad headers only expose the GL_POINT_SPRITE_ARB/_NV aliases.
-// The original OpenGL.h shim defined this value; restore it locally so the
-// existing glEnable/glDisable calls compile unchanged (point sprites are always
-// enabled under core, so these calls are inert no-ops, same as on the 3b shim).
-#ifndef GL_POINT_SPRITE
-#define GL_POINT_SPRITE 0x8861
-#endif
-
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -616,7 +607,6 @@ int DissolveParticleSystem::Render(
         m_gpuVertices.data(),
         GL_STREAM_DRAW);
     glEnable(GL_PROGRAM_POINT_SIZE);
-    glEnable(GL_POINT_SPRITE);
     glEnable(GL_BLEND);
     glBlendEquation(GL_FUNC_ADD);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -624,7 +614,6 @@ int DissolveParticleSystem::Render(
     glDrawArrays(GL_POINTS, 0, static_cast<GLsizei>(m_gpuVertices.size()));
     glDepthMask(GL_TRUE);
     glDisable(GL_BLEND);
-    glDisable(GL_POINT_SPRITE);
     glBindVertexArray(0);
     glUseProgram(0);
     return static_cast<int>(m_gpuVertices.size());
