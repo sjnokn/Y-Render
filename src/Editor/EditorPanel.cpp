@@ -2,6 +2,8 @@
 
 #include "imgui.h"
 
+#include <glm/glm.hpp>
+
 #include <algorithm>
 #include <cstdint>
 #include <cmath>
@@ -30,7 +32,7 @@ float ToRadians(float degrees)
     return degrees * kPi / 180.0f;
 }
 
-void DragRotationDegrees(const char* label, DirectX::XMFLOAT3& rotation)
+void DragRotationDegrees(const char* label, glm::vec3& rotation)
 {
     float degrees[3] = {ToDegrees(rotation.x), ToDegrees(rotation.y), ToDegrees(rotation.z)};
     if (ImGui::DragFloat3(label, degrees, 0.5f, -360.0f, 360.0f, "%.1f"))
@@ -107,12 +109,12 @@ float ClampFloat(float value, float minValue, float maxValue)
     return std::max(minValue, std::min(value, maxValue));
 }
 
-void NormalizeDirection(DirectX::XMFLOAT3& direction)
+void NormalizeDirection(glm::vec3& direction)
 {
     const float length = std::sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z);
     if (length <= 0.0001f)
     {
-        direction = DirectX::XMFLOAT3(-0.35f, -0.85f, 0.35f);
+        direction = glm::vec3(-0.35f, -0.85f, 0.35f);
         return;
     }
 
@@ -376,11 +378,11 @@ void EditorPanel::RenderInspector(EditorPanelContext& context)
             ImGui::ColorEdit4(T("基础颜色", "Base Color"), &object.material.baseColor.x);
             if (ImGui::Button(T("重置基础材质", "Reset Base Material")))
             {
-                object.material.baseColor = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+                object.material.baseColor = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
                 object.material.useAlbedoTexture = true;
                 object.material.preserveImportedUnlit = false;
-                object.material.uvTiling = DirectX::XMFLOAT2(1.0f, 1.0f);
-                object.material.uvOffset = DirectX::XMFLOAT2(0.0f, 0.0f);
+                object.material.uvTiling = glm::vec2(1.0f, 1.0f);
+                object.material.uvOffset = glm::vec2(0.0f, 0.0f);
             }
 
             ImGui::SeparatorText(T("贴图槽", "Texture Slots"));
@@ -392,8 +394,8 @@ void EditorPanel::RenderInspector(EditorPanelContext& context)
             ImGui::DragFloat2(T("偏移", "Offset"), &object.material.uvOffset.x, 0.01f, -10.0f, 10.0f, "%.2f");
             if (ImGui::Button(T("重置贴图坐标", "Reset Texture Coordinate")))
             {
-                object.material.uvTiling = DirectX::XMFLOAT2(1.0f, 1.0f);
-                object.material.uvOffset = DirectX::XMFLOAT2(0.0f, 0.0f);
+                object.material.uvTiling = glm::vec2(1.0f, 1.0f);
+                object.material.uvOffset = glm::vec2(0.0f, 0.0f);
             }
             ImGui::EndTabItem();
         }
@@ -429,13 +431,13 @@ void EditorPanel::RenderInspector(EditorPanelContext& context)
             ImGui::SliderFloat(T("高光范围", "Specular Power"), &object.material.specularPower, 1.0f, 256.0f, "%.0f");
             if (ImGui::Button(T("重置材质光照", "Reset Material Lighting")))
             {
-                object.material.ambientColor = DirectX::XMFLOAT4(0.12f, 0.14f, 0.18f, 1.0f);
+                object.material.ambientColor = glm::vec4(0.12f, 0.14f, 0.18f, 1.0f);
                 object.material.diffuseIntensity = 1.0f;
                 object.material.specularIntensity = 0.35f;
                 object.material.specularPower = 48.0f;
                 object.material.toonSteps = 4.0f;
-                object.material.shadowColor = DirectX::XMFLOAT4(0.18f, 0.20f, 0.32f, 1.0f);
-                object.material.rimColor = DirectX::XMFLOAT4(0.55f, 0.85f, 1.0f, 1.0f);
+                object.material.shadowColor = glm::vec4(0.18f, 0.20f, 0.32f, 1.0f);
+                object.material.rimColor = glm::vec4(0.55f, 0.85f, 1.0f, 1.0f);
                 object.material.rimPower = 3.0f;
                 object.material.rimIntensity = 0.45f;
             }
@@ -450,7 +452,7 @@ void EditorPanel::RenderInspector(EditorPanelContext& context)
                     "Directional lights behave like the sun: they have no position, only a shared light direction. The first light is usually the key light and the second is the fill light."));
             if (lights.size() < 4 && ImGui::Button(T("添加方向光", "Add Directional Light")))
             {
-                lights.push_back({DirectX::XMFLOAT3(-0.35f, -0.85f, 0.35f), 0.5f, DirectX::XMFLOAT3(1.0f, 1.0f, 1.0f), 0.0f});
+                lights.push_back({glm::vec3(-0.35f, -0.85f, 0.35f), 0.5f, glm::vec3(1.0f, 1.0f, 1.0f), 0.0f});
             }
             if (lights.size() > 1)
             {
@@ -646,11 +648,11 @@ void EditorPanel::RenderInspector(EditorPanelContext& context)
                     context.depthFogStart = 3.5f;
                     context.depthFogEnd = 14.0f;
                     context.depthFogDensity = 0.38f;
-                    context.depthFogColor = DirectX::XMFLOAT4(0.62f, 0.78f, 0.84f, 1.0f);
+                    context.depthFogColor = glm::vec4(0.62f, 0.78f, 0.84f, 1.0f);
                     context.depthOutlineEnabled = true;
                     context.depthOutlineWidth = 1.25f;
                     context.depthOutlineStrength = 0.78f;
-                    context.depthOutlineColor = DirectX::XMFLOAT4(0.08f, 0.18f, 0.24f, 1.0f);
+                    context.depthOutlineColor = glm::vec4(0.08f, 0.18f, 0.24f, 1.0f);
                 }
                 ImGui::TextWrapped("%s", T(
                     "深度雾会让远处的物体慢慢接近背景颜色；深度描边会比较相邻像素的远近，在轮廓处加线。两者都属于画面效果，不会改变模型本身。",
@@ -741,7 +743,7 @@ void EditorPanel::RenderDiagnosticsContent(EditorPanelContext& context)
 
     ImGui::NextColumn();
     ImGui::SeparatorText(T("相机", "Camera"));
-    const DirectX::XMFLOAT3& cameraPosition = context.camera.Position();
+    const glm::vec3& cameraPosition = context.camera.Position();
     ImGui::Text("%s: %.2f %.2f %.2f", T("位置", "Position"), cameraPosition.x, cameraPosition.y, cameraPosition.z);
     ImGui::Text("%s: %.2f %.2f", T("偏航/俯仰", "Yaw/Pitch"), context.camera.Yaw(), context.camera.Pitch());
     ImGui::Text("%s: %d", T("方向光", "Directional Lights"), static_cast<int>(context.scene.DirectionalLights().size()));

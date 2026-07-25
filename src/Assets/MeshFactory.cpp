@@ -2,6 +2,11 @@
 
 #include "Core/Platform.h"
 
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
+#include <glm/gtc/type_ptr.hpp>
+
 #include <tinygltf.h>
 
 #include <algorithm>
@@ -86,11 +91,12 @@ namespace
 // ---------------------------------------------------------------------------
 // glTF loading backed by tinygltf.
 //
-// This replaces the former hand-written JSON/GLB parser. The DirectX math is
-// intentionally preserved bit-for-bit (including known non-standard behaviours
-// such as the column/row transpose in the matrix branch and the local*
-// parentWorld composition order); only the data source changed from raw JSON
-// scanning to tinygltf::Model.
+// Phase 4: all math is now GLM (column-vector). Two latent DX bugs are fixed
+// as part of the migration: (1) the node.matrix branch previously transposed
+// twice (load row-major into XMFLOAT4X4, then XMMatrixTranspose) which applied
+// M^T - now glm::make_mat4 reads the column-major values directly; (2) the
+// node world composition was local*parentWorld (row-vector) - now parent*local
+// (column-vector).
 // ---------------------------------------------------------------------------
 
 struct GltfNode
@@ -98,9 +104,17 @@ struct GltfNode
     int mesh = -1;
     int skin = -1;
     std::vector<int> children;
-    DirectX::XMMATRIX local = DirectX::XMMatrixIdentity();
-    DirectX::XMMATRIX world = DirectX::XMMatrixIdentity();
+    glm::mat4 local = glm::mat4(1.0f);
+    glm::mat4 world = glm::mat4(1.0f);
 };
+
+// glm::normalize on a zero-length vector returns NaN and would poison the
+// whole frame; preserve the old hand-written Normalize fallback semantics.
+glm::vec3 normalizeOr(const glm::vec3& value, const glm::vec3& fallback)
+{
+    const float lengthSq = glm::dot(value, value);
+    return lengthSq > 0.00001f ? value * (1.0f / std::sqrt(lengthSq)) : fallback;
+}
 
 const unsigned char* AccessorData(
     const tinygltf::Model& model,
@@ -240,55 +254,59 @@ uint32_t ReadIndex(const unsigned char* data, int componentType)
     }
 }
 
-DirectX::XMMATRIX NodeLocalMatrix(const tinygltf::Node& node)
+glm::mat4 NodeLocalMatrix(const tinygltf::Node& node)
 {
-    // Matrix branch: glTF stores the 16 doubles in column-major order. Preserve
-    // the existing latent behaviour - load them row-by-row into XMFLOAT4X4 and
-    // transpose. (This M^T handling is a known quirk, deferred to Phase 4.)
+    // Matrix branch: glTF stores the 16 doubles in column-major order.
+    // glm::make_mat4 reads them column-major directly, yielding the true M.
+    // (The previous DX code loaded them row-major into XMFLOAT4X4 and then
+    // transposed, which net-applied M^T - a latent bug, fixed here.)
     if (node.matrix.size() == 16)
     {
-        DirectX::XMFLOAT4X4 matrix{
-            static_cast<float>(node.matrix[0]), static_cast<float>(node.matrix[1]), static_cast<float>(node.matrix[2]), static_cast<float>(node.matrix[3]),
-            static_cast<float>(node.matrix[4]), static_cast<float>(node.matrix[5]), static_cast<float>(node.matrix[6]), static_cast<float>(node.matrix[7]),
-            static_cast<float>(node.matrix[8]), static_cast<float>(node.matrix[9]), static_cast<float>(node.matrix[10]), static_cast<float>(node.matrix[11]),
-            static_cast<float>(node.matrix[12]), static_cast<float>(node.matrix[13]), static_cast<float>(node.matrix[14]), static_cast<float>(node.matrix[15])};
-        return DirectX::XMMatrixTranspose(DirectX::XMLoadFloat4x4(&matrix));
+        float values[16];
+        for (int i = 0; i < 16; ++i)
+        {
+            values[i] = static_cast<float>(node.matrix[static_cast<size_t>(i)]);
+        }
+        return glm::make_mat4(values);
     }
 
-    // TRS branch: identical construction and composition order as before.
-    DirectX::XMFLOAT3 translation{0.0f, 0.0f, 0.0f};
-    DirectX::XMFLOAT4 rotation{0.0f, 0.0f, 0.0f, 1.0f};
-    DirectX::XMFLOAT3 scale{1.0f, 1.0f, 1.0f};
+    // TRS branch: column-vector T*Q*S (applies S, then Q, then T to a point).
+    glm::vec3 translation{0.0f, 0.0f, 0.0f};
+    glm::vec3 scale{1.0f, 1.0f, 1.0f};
 
     if (node.translation.size() >= 3)
     {
-        translation = DirectX::XMFLOAT3(
+        translation = glm::vec3(
             static_cast<float>(node.translation[0]),
             static_cast<float>(node.translation[1]),
             static_cast<float>(node.translation[2]));
     }
+
+    // glTF stores rotation as (x, y, z, w); glm::quat ctor is (w, x, y, z).
+    glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};
     if (node.rotation.size() >= 4)
     {
-        rotation = DirectX::XMFLOAT4(
+        rotation = glm::quat(
+            static_cast<float>(node.rotation[3]),
             static_cast<float>(node.rotation[0]),
             static_cast<float>(node.rotation[1]),
-            static_cast<float>(node.rotation[2]),
-            static_cast<float>(node.rotation[3]));
+            static_cast<float>(node.rotation[2]));
     }
+
     if (node.scale.size() >= 3)
     {
-        scale = DirectX::XMFLOAT3(
+        scale = glm::vec3(
             static_cast<float>(node.scale[0]),
             static_cast<float>(node.scale[1]),
             static_cast<float>(node.scale[2]));
     }
 
-    return DirectX::XMMatrixScaling(scale.x, scale.y, scale.z) *
-        DirectX::XMMatrixRotationQuaternion(DirectX::XMLoadFloat4(&rotation)) *
-        DirectX::XMMatrixTranslation(translation.x, translation.y, translation.z);
+    return glm::translate(glm::mat4(1.0f), translation) *
+        glm::mat4_cast(rotation) *
+        glm::scale(glm::mat4(1.0f), scale);
 }
 
-void ComputeNodeWorld(std::vector<GltfNode>& nodes, int nodeIndex, const DirectX::XMMATRIX& parentWorld)
+void ComputeNodeWorld(std::vector<GltfNode>& nodes, int nodeIndex, const glm::mat4& parentWorld)
 {
     if (nodeIndex < 0 || nodeIndex >= static_cast<int>(nodes.size()))
     {
@@ -296,7 +314,8 @@ void ComputeNodeWorld(std::vector<GltfNode>& nodes, int nodeIndex, const DirectX
     }
 
     GltfNode& node = nodes[static_cast<size_t>(nodeIndex)];
-    node.world = node.local * parentWorld;
+    // Column-vector world = parent * local (was local * parent in DX row-vector).
+    node.world = parentWorld * node.local;
     for (int child : node.children)
     {
         ComputeNodeWorld(nodes, child, node.world);
@@ -326,7 +345,7 @@ std::vector<GltfNode> BuildGltfNodes(const tinygltf::Model& model)
     {
         for (int root : model.scenes[static_cast<size_t>(sceneIndex)].nodes)
         {
-            ComputeNodeWorld(nodes, root, DirectX::XMMatrixIdentity());
+            ComputeNodeWorld(nodes, root, glm::mat4(1.0f));
         }
     }
     else
@@ -334,7 +353,7 @@ std::vector<GltfNode> BuildGltfNodes(const tinygltf::Model& model)
         // No scene at all: treat every node as a root so meshes stay reachable.
         for (int i = 0; i < static_cast<int>(nodes.size()); ++i)
         {
-            ComputeNodeWorld(nodes, i, DirectX::XMMatrixIdentity());
+            ComputeNodeWorld(nodes, i, glm::mat4(1.0f));
         }
     }
     return nodes;
@@ -381,7 +400,7 @@ void ParseImportedMaterials(const tinygltf::Model& model, Mesh& outMesh)
         const std::vector<double>& baseColorFactor = material.pbrMetallicRoughness.baseColorFactor;
         if (baseColorFactor.size() >= 4)
         {
-            imported.baseColor = DirectX::XMFLOAT4(
+            imported.baseColor = glm::vec4(
                 static_cast<float>(baseColorFactor[0]),
                 static_cast<float>(baseColorFactor[1]),
                 static_cast<float>(baseColorFactor[2]),
@@ -416,7 +435,7 @@ void ParseImportedMaterials(const tinygltf::Model& model, Mesh& outMesh)
 bool AppendGltfPrimitive(
     const tinygltf::Model& model,
     const tinygltf::Primitive& primitive,
-    const DirectX::XMMATRIX& nodeWorld,
+    const glm::mat4& nodeWorld,
     Mesh& outMesh)
 {
     const auto positionIt = primitive.attributes.find("POSITION");
@@ -443,7 +462,7 @@ bool AppendGltfPrimitive(
     }
 
     const int materialIndex = primitive.material;
-    DirectX::XMFLOAT4 primitiveColor{1.0f, 1.0f, 1.0f, 1.0f};
+    glm::vec4 primitiveColor{1.0f, 1.0f, 1.0f, 1.0f};
     if (materialIndex >= 0 && static_cast<size_t>(materialIndex) < outMesh.importedMaterials.size())
     {
         primitiveColor = outMesh.importedMaterials[static_cast<size_t>(materialIndex)].baseColor;
@@ -477,9 +496,10 @@ bool AppendGltfPrimitive(
     const uint32_t indexStart = static_cast<uint32_t>(outMesh.indices.size());
     outMesh.vertices.reserve(outMesh.vertices.size() + positionAccessor.count);
 
-    // normalMatrix is the inverse-transpose of nodeWorld, matching the previous
-    // implementation exactly (including its non-standard handling).
-    const DirectX::XMMATRIX normalMatrix = DirectX::XMMatrixTranspose(DirectX::XMMatrixInverse(nullptr, nodeWorld));
+    // normalMatrix is the inverse-transpose of nodeWorld. CPU pre-bake path:
+    // only the xyz of normals are transformed here, so the mat3 form is correct
+    // (the GPU upload path in RendererApp keeps mat4 to match uniform mat4).
+    const glm::mat3 normalMatrix = glm::transpose(glm::inverse(glm::mat3(nodeWorld)));
 
     for (size_t i = 0; i < positionAccessor.count; ++i)
     {
@@ -492,12 +512,10 @@ bool AppendGltfPrimitive(
             positionValues);
 
         Vertex vertex{};
-        DirectX::XMStoreFloat3(
-            &vertex.position,
-            DirectX::XMVector3TransformCoord(
-                DirectX::XMVectorSet(positionValues[0], positionValues[1], positionValues[2], 1.0f), nodeWorld));
-        vertex.normal = DirectX::XMFLOAT3(0.0f, 1.0f, 0.0f);
-        vertex.uv = DirectX::XMFLOAT2(0.0f, 0.0f);
+        vertex.position = glm::vec3(nodeWorld * glm::vec4(
+            positionValues[0], positionValues[1], positionValues[2], 1.0f));
+        vertex.normal = glm::vec3(0.0f, 1.0f, 0.0f);
+        vertex.uv = glm::vec2(0.0f, 0.0f);
         vertex.color = primitiveColor;
 
         if (normalData != nullptr && i < normalAccessor->count)
@@ -509,10 +527,8 @@ bool AppendGltfPrimitive(
                 normalAccessor->normalized,
                 3,
                 normalValues);
-            const DirectX::XMVECTOR transformedNormal = DirectX::XMVector3Normalize(
-                DirectX::XMVector3TransformNormal(
-                    DirectX::XMVectorSet(normalValues[0], normalValues[1], normalValues[2], 0.0f), normalMatrix));
-            DirectX::XMStoreFloat3(&vertex.normal, transformedNormal);
+            vertex.normal = glm::normalize(normalMatrix * glm::vec3(
+                normalValues[0], normalValues[1], normalValues[2]));
         }
 
         if (uvData != nullptr && i < uvAccessor->count)
@@ -524,7 +540,7 @@ bool AppendGltfPrimitive(
                 uvAccessor->normalized,
                 2,
                 uvValues);
-            vertex.uv = DirectX::XMFLOAT2(uvValues[0], uvValues[1]);
+            vertex.uv = glm::vec2(uvValues[0], uvValues[1]);
         }
 
         outMesh.vertices.push_back(vertex);
@@ -634,7 +650,7 @@ void GenerateNormals(Mesh& mesh)
 {
     for (Vertex& vertex : mesh.vertices)
     {
-        vertex.normal = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
+        vertex.normal = glm::vec3(0.0f, 0.0f, 0.0f);
     }
 
     for (size_t i = 0; i + 2 < mesh.indices.size(); i += 3)
@@ -642,35 +658,15 @@ void GenerateNormals(Mesh& mesh)
         Vertex& a = mesh.vertices[mesh.indices[i + 0]];
         Vertex& b = mesh.vertices[mesh.indices[i + 1]];
         Vertex& c = mesh.vertices[mesh.indices[i + 2]];
-        const DirectX::XMVECTOR p0 = DirectX::XMLoadFloat3(&a.position);
-        const DirectX::XMVECTOR p1 = DirectX::XMLoadFloat3(&b.position);
-        const DirectX::XMVECTOR p2 = DirectX::XMLoadFloat3(&c.position);
-        const DirectX::XMVECTOR normal = DirectX::XMVector3Cross(DirectX::XMVectorSubtract(p1, p0), DirectX::XMVectorSubtract(p2, p0));
-        DirectX::XMFLOAT3 n{};
-        DirectX::XMStoreFloat3(&n, normal);
-        a.normal.x += n.x;
-        a.normal.y += n.y;
-        a.normal.z += n.z;
-        b.normal.x += n.x;
-        b.normal.y += n.y;
-        b.normal.z += n.z;
-        c.normal.x += n.x;
-        c.normal.y += n.y;
-        c.normal.z += n.z;
+        const glm::vec3 normal = glm::cross(b.position - a.position, c.position - a.position);
+        a.normal += normal;
+        b.normal += normal;
+        c.normal += normal;
     }
 
     for (Vertex& vertex : mesh.vertices)
     {
-        DirectX::XMVECTOR normal = DirectX::XMLoadFloat3(&vertex.normal);
-        if (DirectX::XMVectorGetX(DirectX::XMVector3LengthSq(normal)) <= 0.000001f)
-        {
-            normal = DirectX::XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
-        }
-        else
-        {
-            normal = DirectX::XMVector3Normalize(normal);
-        }
-        DirectX::XMStoreFloat3(&vertex.normal, normal);
+        vertex.normal = normalizeOr(vertex.normal, glm::vec3(0.0f, 1.0f, 0.0f));
     }
 
     mesh.hasNormals = true;
@@ -691,7 +687,7 @@ void AppendQuad(Mesh& mesh, const Vertex& a, const Vertex& b, const Vertex& c, c
     mesh.indices.push_back(start + 3);
 }
 
-void AppendBox(Mesh& mesh, DirectX::XMFLOAT3 center, DirectX::XMFLOAT3 halfExtents)
+void AppendBox(Mesh& mesh, glm::vec3 center, glm::vec3 halfExtents)
 {
     const float x0 = center.x - halfExtents.x;
     const float x1 = center.x + halfExtents.x;
@@ -721,14 +717,14 @@ bool LoadObj(const std::wstring& path, Mesh& outMesh)
     outMesh.sourcePath = WideToUtf8(path);
     outMesh.displayName = std::filesystem::path(path).filename().string();
 
-    std::vector<DirectX::XMFLOAT3> positions;
-    std::vector<DirectX::XMFLOAT3> normals;
-    std::vector<DirectX::XMFLOAT2> texcoords;
+    std::vector<glm::vec3> positions;
+    std::vector<glm::vec3> normals;
+    std::vector<glm::vec2> texcoords;
     std::unordered_map<ObjKey, uint32_t, ObjKeyHash> vertexMap;
 
-    const DirectX::XMFLOAT3 fallbackPosition{0.0f, 0.0f, 0.0f};
-    const DirectX::XMFLOAT3 fallbackNormal{0.0f, 1.0f, 0.0f};
-    const DirectX::XMFLOAT2 fallbackUv{0.0f, 0.0f};
+    const glm::vec3 fallbackPosition{0.0f, 0.0f, 0.0f};
+    const glm::vec3 fallbackNormal{0.0f, 1.0f, 0.0f};
+    const glm::vec2 fallbackUv{0.0f, 0.0f};
 
     std::string line;
     while (std::getline(file, line))
@@ -739,19 +735,19 @@ bool LoadObj(const std::wstring& path, Mesh& outMesh)
 
         if (type == "v")
         {
-            DirectX::XMFLOAT3 value{};
+            glm::vec3 value{};
             stream >> value.x >> value.y >> value.z;
             positions.push_back(value);
         }
         else if (type == "vn")
         {
-            DirectX::XMFLOAT3 value{};
+            glm::vec3 value{};
             stream >> value.x >> value.y >> value.z;
             normals.push_back(value);
         }
         else if (type == "vt")
         {
-            DirectX::XMFLOAT2 value{};
+            glm::vec2 value{};
             stream >> value.x >> value.y;
             value.y = 1.0f - value.y;
             texcoords.push_back(value);
@@ -860,17 +856,17 @@ void UpdateMeshBounds(Mesh& mesh)
 {
     if (mesh.vertices.empty())
     {
-        mesh.boundsMin = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
-        mesh.boundsMax = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
+        mesh.boundsMin = glm::vec3(0.0f, 0.0f, 0.0f);
+        mesh.boundsMax = glm::vec3(0.0f, 0.0f, 0.0f);
         return;
     }
 
-    DirectX::XMFLOAT3 minValue{
+    glm::vec3 minValue{
         std::numeric_limits<float>::max(),
         std::numeric_limits<float>::max(),
         std::numeric_limits<float>::max(),
     };
-    DirectX::XMFLOAT3 maxValue{
+    glm::vec3 maxValue{
         std::numeric_limits<float>::lowest(),
         std::numeric_limits<float>::lowest(),
         std::numeric_limits<float>::lowest(),
@@ -898,7 +894,7 @@ void NormalizeMeshForPreview(Mesh& mesh, float targetHeight)
     const float depth = mesh.boundsMax.z - mesh.boundsMin.z;
     const float longest = std::max({width, height, depth, 0.0001f});
     const float scale = targetHeight / longest;
-    const DirectX::XMFLOAT3 center{
+    const glm::vec3 center{
         (mesh.boundsMin.x + mesh.boundsMax.x) * 0.5f,
         mesh.boundsMin.y,
         (mesh.boundsMin.z + mesh.boundsMax.z) * 0.5f,

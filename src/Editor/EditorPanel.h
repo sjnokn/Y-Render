@@ -4,6 +4,8 @@
 #include "Scene/Camera.h"
 #include "Scene/Scene.h"
 
+#include <glm/glm.hpp>
+
 #include <functional>
 #include <string>
 
@@ -46,11 +48,11 @@ struct EditorPanelContext
     float& depthFogStart;
     float& depthFogEnd;
     float& depthFogDensity;
-    DirectX::XMFLOAT4& depthFogColor;
+    glm::vec4& depthFogColor;
     bool& depthOutlineEnabled;
     float& depthOutlineWidth;
     float& depthOutlineStrength;
-    DirectX::XMFLOAT4& depthOutlineColor;
+    glm::vec4& depthOutlineColor;
     bool& autoTurntable;
     float fps = 0.0f;
     unsigned int width = 0;

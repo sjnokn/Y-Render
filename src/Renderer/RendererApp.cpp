@@ -8,6 +8,7 @@
 #include "Core/Platform.h"
 #include "Core/ProjectConfig.h"
 #include "Renderer/DebugOverlay.h"
+#include "Renderer/ShaderUniform.h"
 
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
@@ -23,8 +24,6 @@
 #include <ctime>
 #include <cstdio>
 #include <vector>
-
-using namespace DirectX;
 
 namespace YRender
 {
@@ -639,7 +638,7 @@ void RendererApp::ResetCameraForDemo()
     const auto& objects = m_scene.Objects();
     if (objects.empty())
     {
-        m_camera.SetOrbit(XMFLOAT3(0.0f, 0.25f, 0.0f), 4.0f, -0.20f, 0.04f);
+        m_camera.SetOrbit(glm::vec3(0.0f, 0.25f, 0.0f), 4.0f, -0.20f, 0.04f);
         return;
     }
 
@@ -649,9 +648,9 @@ void RendererApp::ResetCameraForDemo()
         return;
     }
 
-    const XMFLOAT3& minValue = subject.mesh->boundsMin;
-    const XMFLOAT3& maxValue = subject.mesh->boundsMax;
-    const XMFLOAT3 center{
+    const glm::vec3& minValue = subject.mesh->boundsMin;
+    const glm::vec3& maxValue = subject.mesh->boundsMax;
+    const glm::vec3 center{
         subject.transform.position.x + (minValue.x + maxValue.x) * 0.5f * subject.transform.scale.x,
         subject.transform.position.y + (minValue.y + maxValue.y) * 0.5f * subject.transform.scale.y,
         subject.transform.position.z + (minValue.z + maxValue.z) * 0.5f * subject.transform.scale.z,
@@ -735,7 +734,7 @@ void RendererApp::UpdateWindowTitle()
     glfwSetWindowTitle(m_window, WideToUtf8(BuildDebugTitle(state)).c_str());
 }
 
-XMMATRIX RendererApp::CameraViewProjection(float aspect) const
+glm::mat4 RendererApp::CameraViewProjection(float aspect) const
 {
     return m_camera.ViewProjection(aspect);
 }
@@ -826,7 +825,7 @@ void RendererApp::RenderSceneObjects()
 
     const ShaderLabViewport previewViewport = CurrentPreviewViewport();
     const float aspect = previewViewport.width / std::max(1.0f, previewViewport.height);
-    const XMMATRIX viewProj = CameraViewProjection(aspect);
+    const glm::mat4 viewProj = CameraViewProjection(aspect);
     const bool incinerationActive = m_effectsEnabled && std::any_of(
         m_scene.Objects().begin(),
         m_scene.Objects().end(),
@@ -842,19 +841,23 @@ void RendererApp::RenderSceneObjects()
             continue;
         }
 
-        const XMMATRIX world = object.transform.Matrix();
-        const XMMATRIX normalMatrix = XMMatrixTranspose(XMMatrixInverse(nullptr, world));
+        const glm::mat4 world = object.transform.Matrix();
+        // GPU upload path: keep mat4 (inverse-transpose) to match the
+        // `uniform mat4 uNormalMatrix` declared in Standard.vert. Do NOT use a
+        // mat3 here - glUniformMatrix4fv reads 16 floats and a mat3 only
+        // supplies 9, reading stack garbage.
+        const glm::mat4 normalMatrix = glm::transpose(glm::inverse(world));
         SetMat4(m_standardShader.program, "uWorld", world);
         SetMat4(m_standardShader.program, "uNormalMatrix", normalMatrix);
         SetMat4(m_standardShader.program, "uViewProj", viewProj);
-        const XMFLOAT3& cameraPosition = m_camera.Position();
+        const glm::vec3& cameraPosition = m_camera.Position();
         glUniform3f(glGetUniformLocation(m_standardShader.program, "uCameraPosition"), cameraPosition.x, cameraPosition.y, cameraPosition.z);
         glUniform1f(glGetUniformLocation(m_standardShader.program, "uTime"), m_time);
-        const XMFLOAT4 renderBaseColor = incinerationActive && object.mesh == &m_planeMesh
-            ? XMFLOAT4(0.055f, 0.060f, 0.070f, 1.0f)
+        const glm::vec4 renderBaseColor = incinerationActive && object.mesh == &m_planeMesh
+            ? glm::vec4(0.055f, 0.060f, 0.070f, 1.0f)
             : object.material.baseColor;
-        const XMFLOAT4 renderAmbientColor = incinerationActive && object.mesh == &m_planeMesh
-            ? XMFLOAT4(0.018f, 0.020f, 0.026f, 1.0f)
+        const glm::vec4 renderAmbientColor = incinerationActive && object.mesh == &m_planeMesh
+            ? glm::vec4(0.018f, 0.020f, 0.026f, 1.0f)
             : object.material.ambientColor;
         glUniform4f(glGetUniformLocation(m_standardShader.program, "uBaseColor"), renderBaseColor.x, renderBaseColor.y, renderBaseColor.z, renderBaseColor.w);
         glUniform4f(glGetUniformLocation(m_standardShader.program, "uAmbientColor"), renderAmbientColor.x, renderAmbientColor.y, renderAmbientColor.z, renderAmbientColor.w);
@@ -895,24 +898,24 @@ void RendererApp::RenderSceneObjects()
         glUniform1f(glGetUniformLocation(m_standardShader.program, "uDissolveNoiseInfluence"), object.material.dissolveNoiseInfluence);
         glUniform1f(glGetUniformLocation(m_standardShader.program, "uDissolveFlowStrength"), object.material.dissolveFlowStrength);
         glUniform1f(glGetUniformLocation(m_standardShader.program, "uDissolvePixelSize"), object.material.dissolvePixelSize);
-        XMVECTOR dissolveDirection = XMLoadFloat3(&object.material.dissolveDirection);
-        if (XMVectorGetX(XMVector3LengthSq(dissolveDirection)) < 0.000001f)
+        glm::vec3 dissolveDirection = object.material.dissolveDirection;
+        if (glm::dot(dissolveDirection, dissolveDirection) < 0.000001f)
         {
-            dissolveDirection = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+            dissolveDirection = glm::vec3(0.0f, 1.0f, 0.0f);
         }
-        dissolveDirection = XMVector3Normalize(dissolveDirection);
+        dissolveDirection = glm::normalize(dissolveDirection);
         float dissolveProjectionMin = 0.0f;
         float dissolveProjectionMax = 0.0f;
         bool firstProjection = true;
         for (int corner = 0; corner < 8; ++corner)
         {
-            const XMFLOAT3 localCorner{
+            const glm::vec3 localCorner{
                 (corner & 1) != 0 ? object.mesh->boundsMax.x : object.mesh->boundsMin.x,
                 (corner & 2) != 0 ? object.mesh->boundsMax.y : object.mesh->boundsMin.y,
                 (corner & 4) != 0 ? object.mesh->boundsMax.z : object.mesh->boundsMin.z,
             };
-            const XMVECTOR worldCorner = XMVector3TransformCoord(XMLoadFloat3(&localCorner), world);
-            const float projection = XMVectorGetX(XMVector3Dot(worldCorner, dissolveDirection));
+            const glm::vec3 worldCorner = glm::vec3(world * glm::vec4(localCorner, 1.0f));
+            const float projection = glm::dot(worldCorner, dissolveDirection);
             if (firstProjection)
             {
                 dissolveProjectionMin = projection;
@@ -1230,10 +1233,13 @@ void RendererApp::RenderShowcaseOverlay()
     ImGui::End();
 }
 
-void RendererApp::SetMat4(unsigned int program, const char* name, const XMMATRIX& matrix) const
+void RendererApp::SetMat4(unsigned int program, const char* name, const glm::mat4& matrix) const
 {
-    XMFLOAT4X4 value{};
-    XMStoreFloat4x4(&value, matrix);
-    glUniformMatrix4fv(glGetUniformLocation(program, name), 1, GL_FALSE, &value.m[0][0]);
+    // Phase 4 unified upload convention: GLM column-major matrix + GL_FALSE (no
+    // transpose) via glm::value_ptr. The old XMFLOAT4x4 + GL_FALSE path net-
+    // transposed, which happened to be correct for the row-vector DX matrices
+    // but is wrong for column-major GLM. Never switch to GL_TRUE and never
+    // reintroduce a manual transpose here.
+    UploadMat4(program, name, matrix);
 }
 } // namespace YRender

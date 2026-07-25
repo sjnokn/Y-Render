@@ -1,6 +1,8 @@
 #pragma once
 
-#include <DirectXMath.h>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/euler_angles.hpp>
 
 #include <cstdint>
 #include <string>
@@ -10,23 +12,26 @@ namespace YRender
 {
 struct Vertex
 {
-    DirectX::XMFLOAT3 position{};
-    DirectX::XMFLOAT3 normal{};
-    DirectX::XMFLOAT2 uv{};
-    DirectX::XMFLOAT4 color{1.0f, 1.0f, 1.0f, 1.0f};
+    glm::vec3 position{};
+    glm::vec3 normal{};
+    glm::vec2 uv{};
+    glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};
 };
 
 struct Transform
 {
-    DirectX::XMFLOAT3 position{0.0f, 0.0f, 0.0f};
-    DirectX::XMFLOAT3 rotation{0.0f, 0.0f, 0.0f};
-    DirectX::XMFLOAT3 scale{1.0f, 1.0f, 1.0f};
+    glm::vec3 position{0.0f, 0.0f, 0.0f};
+    glm::vec3 rotation{0.0f, 0.0f, 0.0f};
+    glm::vec3 scale{1.0f, 1.0f, 1.0f};
 
-    DirectX::XMMATRIX Matrix() const
+    // Phase 4: DX row-vector S*R*T becomes column-vector T*R*S. Note that
+    // DX XMMatrixRotationRollPitchYaw(pitch, yaw, roll) maps to
+    // glm::yawPitchRoll(yaw, pitch, roll) with the first two arguments swapped.
+    glm::mat4 Matrix() const
     {
-        return DirectX::XMMatrixScaling(scale.x, scale.y, scale.z) *
-            DirectX::XMMatrixRotationRollPitchYaw(rotation.x, rotation.y, rotation.z) *
-            DirectX::XMMatrixTranslation(position.x, position.y, position.z);
+        return glm::translate(glm::mat4(1.0f), position) *
+            glm::yawPitchRoll(rotation.y, rotation.x, rotation.z) *
+            glm::scale(glm::mat4(1.0f), scale);
     }
 };
 
@@ -46,7 +51,7 @@ struct ImportedMaterial
 {
     std::string name;
     std::string alphaMode = "OPAQUE";
-    DirectX::XMFLOAT4 baseColor{1.0f, 1.0f, 1.0f, 1.0f};
+    glm::vec4 baseColor{1.0f, 1.0f, 1.0f, 1.0f};
     int baseColorImage = -1;
     bool alphaBlend = false;
     bool alphaMask = false;
@@ -63,10 +68,10 @@ struct SubMesh
 
 struct Material
 {
-    DirectX::XMFLOAT4 baseColor{1.0f, 1.0f, 1.0f, 1.0f};
-    DirectX::XMFLOAT4 ambientColor{0.12f, 0.14f, 0.18f, 1.0f};
-    DirectX::XMFLOAT4 rimColor{0.55f, 0.85f, 1.0f, 1.0f};
-    DirectX::XMFLOAT4 shadowColor{0.18f, 0.20f, 0.32f, 1.0f};
+    glm::vec4 baseColor{1.0f, 1.0f, 1.0f, 1.0f};
+    glm::vec4 ambientColor{0.12f, 0.14f, 0.18f, 1.0f};
+    glm::vec4 rimColor{0.55f, 0.85f, 1.0f, 1.0f};
+    glm::vec4 shadowColor{0.18f, 0.20f, 0.32f, 1.0f};
     float diffuseIntensity = 1.0f;
     float specularIntensity = 0.35f;
     float specularPower = 48.0f;
@@ -85,19 +90,19 @@ struct Material
     bool dissolveAutoProgress = false;
     bool dissolvePaused = false;
     float dissolvePlaybackTime = 0.0f;
-    DirectX::XMFLOAT4 dissolveEdgeColor{1.0f, 0.24f, 0.03f, 1.0f};
-    DirectX::XMFLOAT4 dissolveSecondaryColor{1.0f, 0.85f, 0.35f, 1.0f};
-    DirectX::XMFLOAT3 dissolveDirection{0.0f, 1.0f, 0.0f};
-    DirectX::XMFLOAT3 dissolveCenter{0.5f, 0.5f, 0.5f};
+    glm::vec4 dissolveEdgeColor{1.0f, 0.24f, 0.03f, 1.0f};
+    glm::vec4 dissolveSecondaryColor{1.0f, 0.85f, 0.35f, 1.0f};
+    glm::vec3 dissolveDirection{0.0f, 1.0f, 0.0f};
+    glm::vec3 dissolveCenter{0.5f, 0.5f, 0.5f};
     float dissolveNoiseInfluence = 0.15f;
     float dissolveFlowStrength = 0.38f;
     float dissolvePixelSize = 0.09f;
     float dissolveParticleRate = 70.0f;
     float dissolveParticleSize = 0.055f;
     float dissolveParticleLifetime = 1.6f;
-    DirectX::XMFLOAT3 dissolveParticleWind{0.18f, 0.42f, 0.04f};
-    DirectX::XMFLOAT2 uvTiling{1.0f, 1.0f};
-    DirectX::XMFLOAT2 uvOffset{0.0f, 0.0f};
+    glm::vec3 dissolveParticleWind{0.18f, 0.42f, 0.04f};
+    glm::vec2 uvTiling{1.0f, 1.0f};
+    glm::vec2 uvOffset{0.0f, 0.0f};
     bool useAlbedoTexture = true;
     bool preserveImportedUnlit = false;
     Texture* albedoTexture = nullptr;
@@ -116,17 +121,17 @@ inline void ApplyDissolvePreset(Material& material, int mode = 0)
     material.dissolveAutoProgress = true;
     material.dissolvePaused = false;
     material.dissolvePlaybackTime = 0.0f;
-    material.dissolveEdgeColor = DirectX::XMFLOAT4(1.0f, 0.42f, 0.08f, 1.0f);
-    material.dissolveSecondaryColor = DirectX::XMFLOAT4(1.0f, 0.86f, 0.34f, 1.0f);
-    material.dissolveDirection = DirectX::XMFLOAT3(0.0f, 1.0f, 0.0f);
-    material.dissolveCenter = DirectX::XMFLOAT3(0.5f, 0.5f, 0.5f);
+    material.dissolveEdgeColor = glm::vec4(1.0f, 0.42f, 0.08f, 1.0f);
+    material.dissolveSecondaryColor = glm::vec4(1.0f, 0.86f, 0.34f, 1.0f);
+    material.dissolveDirection = glm::vec3(0.0f, 1.0f, 0.0f);
+    material.dissolveCenter = glm::vec3(0.5f, 0.5f, 0.5f);
     material.dissolveNoiseInfluence = 0.15f;
     material.dissolveFlowStrength = 0.38f;
     material.dissolvePixelSize = 0.09f;
     material.dissolveParticleRate = 70.0f;
     material.dissolveParticleSize = 0.055f;
     material.dissolveParticleLifetime = 1.6f;
-    material.dissolveParticleWind = DirectX::XMFLOAT3(0.18f, 0.42f, 0.04f);
+    material.dissolveParticleWind = glm::vec3(0.18f, 0.42f, 0.04f);
 
     switch (mode)
     {
@@ -134,15 +139,15 @@ inline void ApplyDissolvePreset(Material& material, int mode = 0)
         material.dissolveNoiseScale = 4.2f;
         material.dissolveNoiseInfluence = 0.12f;
         material.dissolveEdgeWidth = 0.055f;
-        material.dissolveEdgeColor = DirectX::XMFLOAT4(0.18f, 0.72f, 1.0f, 1.0f);
-        material.dissolveSecondaryColor = DirectX::XMFLOAT4(0.78f, 0.95f, 1.0f, 1.0f);
+        material.dissolveEdgeColor = glm::vec4(0.18f, 0.72f, 1.0f, 1.0f);
+        material.dissolveSecondaryColor = glm::vec4(0.78f, 0.95f, 1.0f, 1.0f);
         break;
     case 2: // Local sphere
         material.dissolveNoiseScale = 5.0f;
         material.dissolveNoiseInfluence = 0.10f;
         material.dissolveEdgeWidth = 0.065f;
-        material.dissolveEdgeColor = DirectX::XMFLOAT4(0.50f, 0.22f, 1.0f, 1.0f);
-        material.dissolveSecondaryColor = DirectX::XMFLOAT4(0.95f, 0.72f, 1.0f, 1.0f);
+        material.dissolveEdgeColor = glm::vec4(0.50f, 0.22f, 1.0f, 1.0f);
+        material.dissolveSecondaryColor = glm::vec4(0.95f, 0.72f, 1.0f, 1.0f);
         break;
     case 3: // Incineration / ash
         material.dissolveNoiseScale = 3.5f;
@@ -151,12 +156,12 @@ inline void ApplyDissolvePreset(Material& material, int mode = 0)
         material.dissolveEdgeIntensity = 1.95f;
         material.dissolveSpeed = 0.11f;
         material.dissolveProgressSpeed = 0.085f;
-        material.dissolveEdgeColor = DirectX::XMFLOAT4(1.0f, 0.075f, 0.006f, 1.0f);
-        material.dissolveSecondaryColor = DirectX::XMFLOAT4(1.0f, 0.86f, 0.24f, 1.0f);
+        material.dissolveEdgeColor = glm::vec4(1.0f, 0.075f, 0.006f, 1.0f);
+        material.dissolveSecondaryColor = glm::vec4(1.0f, 0.86f, 0.24f, 1.0f);
         material.dissolveParticleRate = 200.0f;
         material.dissolveParticleSize = 0.046f;
         material.dissolveParticleLifetime = 1.45f;
-        material.dissolveParticleWind = DirectX::XMFLOAT3(0.0f, 0.13f, 0.0f);
+        material.dissolveParticleWind = glm::vec3(0.0f, 0.13f, 0.0f);
         break;
     case 4: // FlowMap energy
         material.dissolveNoiseScale = 4.5f;
@@ -164,8 +169,8 @@ inline void ApplyDissolvePreset(Material& material, int mode = 0)
         material.dissolveEdgeIntensity = 2.8f;
         material.dissolveSpeed = 0.28f;
         material.dissolveFlowStrength = 0.52f;
-        material.dissolveEdgeColor = DirectX::XMFLOAT4(0.02f, 0.48f, 1.0f, 1.0f);
-        material.dissolveSecondaryColor = DirectX::XMFLOAT4(0.30f, 1.0f, 0.92f, 1.0f);
+        material.dissolveEdgeColor = glm::vec4(0.02f, 0.48f, 1.0f, 1.0f);
+        material.dissolveSecondaryColor = glm::vec4(0.30f, 1.0f, 0.92f, 1.0f);
         break;
     case 5: // Pixelated
         material.dissolveNoiseScale = 1.15f;
@@ -173,31 +178,31 @@ inline void ApplyDissolvePreset(Material& material, int mode = 0)
         material.dissolveEdgeWidth = 0.12f;
         material.dissolveEdgeIntensity = 2.6f;
         material.dissolvePixelSize = 0.045f;
-        material.dissolveEdgeColor = DirectX::XMFLOAT4(0.02f, 0.82f, 1.0f, 1.0f);
-        material.dissolveSecondaryColor = DirectX::XMFLOAT4(0.96f, 1.0f, 1.0f, 1.0f);
+        material.dissolveEdgeColor = glm::vec4(0.02f, 0.82f, 1.0f, 1.0f);
+        material.dissolveSecondaryColor = glm::vec4(0.96f, 1.0f, 1.0f, 1.0f);
         break;
     case 6: // Edge particles / ash
         material.dissolveNoiseScale = 4.0f;
         material.dissolveNoiseInfluence = 0.18f;
         material.dissolveEdgeWidth = 0.09f;
-        material.dissolveEdgeColor = DirectX::XMFLOAT4(0.95f, 0.18f, 0.02f, 1.0f);
-        material.dissolveSecondaryColor = DirectX::XMFLOAT4(1.0f, 0.65f, 0.08f, 1.0f);
+        material.dissolveEdgeColor = glm::vec4(0.95f, 0.18f, 0.02f, 1.0f);
+        material.dissolveSecondaryColor = glm::vec4(1.0f, 0.65f, 0.08f, 1.0f);
         material.dissolveParticleRate = 90.0f;
         material.dissolveParticleSize = 0.045f;
         material.dissolveParticleLifetime = 1.45f;
-        material.dissolveParticleWind = DirectX::XMFLOAT3(0.28f, 0.36f, 0.04f);
+        material.dissolveParticleWind = glm::vec3(0.28f, 0.36f, 0.04f);
         break;
     case 7: // Smoke
         material.dissolveNoiseScale = 3.4f;
         material.dissolveNoiseInfluence = 0.22f;
         material.dissolveEdgeWidth = 0.12f;
         material.dissolveEdgeIntensity = 0.55f;
-        material.dissolveEdgeColor = DirectX::XMFLOAT4(0.16f, 0.12f, 0.10f, 1.0f);
-        material.dissolveSecondaryColor = DirectX::XMFLOAT4(0.72f, 0.32f, 0.12f, 1.0f);
+        material.dissolveEdgeColor = glm::vec4(0.16f, 0.12f, 0.10f, 1.0f);
+        material.dissolveSecondaryColor = glm::vec4(0.72f, 0.32f, 0.12f, 1.0f);
         material.dissolveParticleRate = 38.0f;
         material.dissolveParticleSize = 0.16f;
         material.dissolveParticleLifetime = 2.6f;
-        material.dissolveParticleWind = DirectX::XMFLOAT3(0.12f, 0.52f, 0.03f);
+        material.dissolveParticleWind = glm::vec3(0.12f, 0.52f, 0.03f);
         break;
     default:
         break;
@@ -206,9 +211,9 @@ inline void ApplyDissolvePreset(Material& material, int mode = 0)
 
 struct DirectionalLight
 {
-    DirectX::XMFLOAT3 direction{-0.35f, -0.85f, 0.35f};
+    glm::vec3 direction{-0.35f, -0.85f, 0.35f};
     float intensity = 1.0f;
-    DirectX::XMFLOAT3 color{1.0f, 0.95f, 0.85f};
+    glm::vec3 color{1.0f, 0.95f, 0.85f};
     float padding = 0.0f;
 };
 
@@ -225,8 +230,8 @@ struct Mesh
     int gltfNodeCount = 0;
     int gltfMeshNodeCount = 0;
     int gltfSkinCount = 0;
-    DirectX::XMFLOAT3 boundsMin{0.0f, 0.0f, 0.0f};
-    DirectX::XMFLOAT3 boundsMax{0.0f, 0.0f, 0.0f};
+    glm::vec3 boundsMin{0.0f, 0.0f, 0.0f};
+    glm::vec3 boundsMax{0.0f, 0.0f, 0.0f};
     bool hasNormals = false;
     bool hasTexcoords = false;
     bool normalizedForPreview = false;

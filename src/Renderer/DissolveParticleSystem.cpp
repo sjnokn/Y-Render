@@ -3,6 +3,9 @@
 #include "Renderer/DissolveParticleSystem.h"
 
 #include "Renderer/IncinerationField.h"
+#include "Renderer/ShaderUniform.h"
+
+#include <glm/glm.hpp>
 
 // GL_POINT_SPRITE (0x8861) was removed from the OpenGL 3.3 core profile, so the
 // core-profile glad headers only expose the GL_POINT_SPRITE_ARB/_NV aliases.
@@ -18,8 +21,6 @@
 #include <cmath>
 #include <cstddef>
 
-using namespace DirectX;
-
 namespace YRender
 {
 namespace
@@ -27,30 +28,17 @@ namespace
 constexpr size_t kMaxParticles = 1200;
 constexpr size_t kMaxIncinerationSamples = 140000;
 
-XMFLOAT3 Add(const XMFLOAT3& a, const XMFLOAT3& b)
-{
-    return XMFLOAT3(a.x + b.x, a.y + b.y, a.z + b.z);
-}
-
-XMFLOAT3 Multiply(const XMFLOAT3& value, float scale)
-{
-    return XMFLOAT3(value.x * scale, value.y * scale, value.z * scale);
-}
-
-XMFLOAT3 Subtract(const XMFLOAT3& a, const XMFLOAT3& b)
-{
-    return XMFLOAT3(a.x - b.x, a.y - b.y, a.z - b.z);
-}
-
-float Length(const XMFLOAT3& value)
+float Length(const glm::vec3& value)
 {
     return std::sqrt(value.x * value.x + value.y * value.y + value.z * value.z);
 }
 
-XMFLOAT3 Normalize(const XMFLOAT3& value, const XMFLOAT3& fallback)
+// glm::normalize on a zero-length vector returns NaN; preserve the old
+// hand-written Normalize fallback semantics.
+glm::vec3 Normalize(const glm::vec3& value, const glm::vec3& fallback)
 {
     const float length = Length(value);
-    return length > 0.00001f ? Multiply(value, 1.0f / length) : fallback;
+    return length > 0.00001f ? value * (1.0f / length) : fallback;
 }
 } // namespace
 
@@ -92,7 +80,7 @@ void DissolveParticleSystem::Initialize()
 
 void DissolveParticleSystem::Reset()
 {
-    XMStoreFloat4x4(&m_sourceWorld, XMMatrixIdentity());
+    m_sourceWorld = glm::mat4(1.0f);
     m_particles.clear();
     m_surfaceSamples.clear();
     m_gpuVertices.clear();
@@ -135,20 +123,20 @@ void DissolveParticleSystem::RebuildIncinerationSource(const Mesh& mesh, float n
         return;
     }
 
-    const float diagonal = Length(Subtract(mesh.boundsMax, mesh.boundsMin));
+    const float diagonal = Length(mesh.boundsMax - mesh.boundsMin);
     const float targetSpacing = std::max(diagonal * 0.022f, 0.010f);
     m_surfaceSamples.reserve(std::min(triangleCount * 2, kMaxIncinerationSamples));
 
-    const auto interpolatePosition = [](const std::array<XMFLOAT3, 3>& values, float b0, float b1, float b2)
+    const auto interpolatePosition = [](const std::array<glm::vec3, 3>& values, float b0, float b1, float b2)
     {
-        return XMFLOAT3(
+        return glm::vec3(
             values[0].x * b0 + values[1].x * b1 + values[2].x * b2,
             values[0].y * b0 + values[1].y * b1 + values[2].y * b2,
             values[0].z * b0 + values[1].z * b1 + values[2].z * b2);
     };
 
-    const auto appendSample = [&](const std::array<XMFLOAT3, 3>& positions,
-                                  const std::array<XMFLOAT3, 3>& normals,
+    const auto appendSample = [&](const std::array<glm::vec3, 3>& positions,
+                                  const std::array<glm::vec3, 3>& normals,
                                   float b0,
                                   float b1,
                                   float b2,
@@ -162,7 +150,7 @@ void DissolveParticleSystem::RebuildIncinerationSource(const Mesh& mesh, float n
         sample.position = interpolatePosition(positions, b0, b1, b2);
         sample.normal = Normalize(
             interpolatePosition(normals, b0, b1, b2),
-            XMFLOAT3(0.0f, 1.0f, 0.0f));
+            glm::vec3(0.0f, 1.0f, 0.0f));
         sample.burnNoise = IncinerationField::BurnNoise(sample.position, noiseScale);
         sample.seed = IncinerationField::Hash(
             sample.position.x * 37.0f + sample.position.z * 17.0f +
@@ -187,17 +175,17 @@ void DissolveParticleSystem::RebuildIncinerationSource(const Mesh& mesh, float n
             continue;
         }
 
-        std::array<XMFLOAT3, 3> positions{};
-        std::array<XMFLOAT3, 3> normals{};
+        std::array<glm::vec3, 3> positions{};
+        std::array<glm::vec3, 3> normals{};
         for (size_t corner = 0; corner < 3; ++corner)
         {
             positions[corner] = mesh.vertices[indices[corner]].position;
             normals[corner] = mesh.vertices[indices[corner]].normal;
         }
         const float maximumEdge = std::max({
-            Length(Subtract(positions[1], positions[0])),
-            Length(Subtract(positions[2], positions[1])),
-            Length(Subtract(positions[0], positions[2])),
+            Length(positions[1] - positions[0]),
+            Length(positions[2] - positions[1]),
+            Length(positions[0] - positions[2]),
         });
         const int segments = std::clamp(
             static_cast<int>(std::ceil(maximumEdge / targetSpacing)),
@@ -255,20 +243,20 @@ void DissolveParticleSystem::Spawn(
 
     const Mesh& mesh = *source.mesh;
     const Material& material = source.material;
-    const XMFLOAT3 boundsSize{
+    const glm::vec3 boundsSize{
         std::max(mesh.boundsMax.x - mesh.boundsMin.x, 0.0001f),
         std::max(mesh.boundsMax.y - mesh.boundsMin.y, 0.0001f),
         std::max(mesh.boundsMax.z - mesh.boundsMin.z, 0.0001f),
     };
-    XMFLOAT3 direction = material.dissolveDirection;
+    glm::vec3 direction = material.dissolveDirection;
     const float directionLength = std::sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z);
     if (directionLength < 0.001f)
     {
-        direction = XMFLOAT3(0.0f, 1.0f, 0.0f);
+        direction = glm::vec3(0.0f, 1.0f, 0.0f);
     }
     else
     {
-        direction = Multiply(direction, 1.0f / directionLength);
+        direction = direction * (1.0f / directionLength);
     }
     const float directionSpan = std::max(
         std::abs(direction.x) + std::abs(direction.y) + std::abs(direction.z),
@@ -284,8 +272,8 @@ void DissolveParticleSystem::Spawn(
         {
             size_t index = static_cast<size_t>(Random01() * static_cast<float>(mesh.vertices.size()));
             index = std::min(index, mesh.vertices.size() - 1);
-            const XMFLOAT3& position = mesh.vertices[index].position;
-            const XMFLOAT3 local01{
+            const glm::vec3& position = mesh.vertices[index].position;
+            const glm::vec3 local01{
                 (position.x - mesh.boundsMin.x) / boundsSize.x,
                 (position.y - mesh.boundsMin.y) / boundsSize.y,
                 (position.z - mesh.boundsMin.z) / boundsSize.z,
@@ -305,8 +293,8 @@ void DissolveParticleSystem::Spawn(
         }
     }
 
-    XMFLOAT3 position;
-    XMFLOAT3 normal;
+    glm::vec3 position;
+    glm::vec3 normal;
     if (incinerationSample)
     {
         position = incinerationSample->position;
@@ -315,13 +303,14 @@ void DissolveParticleSystem::Spawn(
     else
     {
         const Vertex& sourceVertex = mesh.vertices[bestIndex];
-        const XMMATRIX world = source.transform.Matrix();
-        XMStoreFloat3(
-            &position,
-            XMVector3TransformCoord(XMLoadFloat3(&sourceVertex.position), world));
-        XMStoreFloat3(
-            &normal,
-            XMVector3Normalize(XMVector3TransformNormal(XMLoadFloat3(&sourceVertex.normal), world)));
+        const glm::mat4 world = source.transform.Matrix();
+        position = glm::vec3(world * glm::vec4(sourceVertex.position, 1.0f));
+        // intentionally preserves pre-existing bug: transforms the normal by
+        // `world` directly instead of the inverse-transpose. Kept bug-for-bug
+        // during the GLM migration; fix deferred.
+        normal = Normalize(
+            glm::vec3(glm::mat3(world) * sourceVertex.normal),
+            glm::vec3(0.0f, 1.0f, 0.0f));
     }
 
     Particle particle;
@@ -331,10 +320,10 @@ void DissolveParticleSystem::Spawn(
     particle.age = 0.0f;
     particle.lifetime = material.dissolveParticleLifetime * (0.72f + Random01() * 0.56f);
     particle.size = material.dissolveParticleSize * (0.65f + Random01() * 0.75f);
-    particle.position = Add(position, Multiply(normal, 0.006f + Random01() * 0.016f));
+    particle.position = position + normal * (0.006f + Random01() * 0.016f);
 
     const float lateralSpread = mode == 3 ? 0.105f : 0.34f;
-    const XMFLOAT3 randomDrift{
+    const glm::vec3 randomDrift{
         (Random01() - 0.5f) * lateralSpread,
         (Random01() - 0.5f) * (mode == 3 ? 0.10f : 0.18f),
         (Random01() - 0.5f) * lateralSpread,
@@ -348,9 +337,7 @@ void DissolveParticleSystem::Spawn(
     {
         normalImpulse = 0.16f + Random01() * 0.32f;
     }
-    particle.velocity = Add(
-        Add(material.dissolveParticleWind, randomDrift),
-        Multiply(normal, normalImpulse));
+    particle.velocity = material.dissolveParticleWind + randomDrift + normal * normalImpulse;
 
     if (mode == 3)
     {
@@ -360,7 +347,7 @@ void DissolveParticleSystem::Spawn(
         {
             // Tiny, short-lived sparks provide highlights without turning the
             // entire ash stream orange.
-            particle.color = XMFLOAT4(
+            particle.color = glm::vec4(
                 1.0f,
                 0.35f + Random01() * 0.42f,
                 0.012f,
@@ -373,7 +360,7 @@ void DissolveParticleSystem::Spawn(
         {
             // Visible fire tongues rise out of the boundary. Their soft
             // procedural shape is built in the fragment shader.
-            particle.color = XMFLOAT4(
+            particle.color = glm::vec4(
                 1.0f,
                 0.11f + Random01() * 0.28f,
                 0.004f,
@@ -389,7 +376,7 @@ void DissolveParticleSystem::Spawn(
             // Fine suspended ash complements the solid charcoal crumbs. A
             // soft noisy radial mask keeps these from reading as gray cards.
             const float gray = 0.19f + Random01() * 0.22f;
-            particle.color = XMFLOAT4(gray * 1.03f, gray, gray * 0.96f, 0.26f + Random01() * 0.24f);
+            particle.color = glm::vec4(gray * 1.03f, gray, gray * 0.96f, 0.26f + Random01() * 0.24f);
             particle.size *= 0.18f + Random01() * 0.30f;
             particle.lifetime *= 0.52f + Random01() * 0.48f;
             particle.velocity.x *= 0.55f;
@@ -401,13 +388,13 @@ void DissolveParticleSystem::Spawn(
     {
         const float hot = Random01();
         particle.color = hot > 0.72f
-            ? XMFLOAT4(1.0f, 0.34f + hot * 0.35f, 0.035f, 0.95f)
-            : XMFLOAT4(0.16f + hot * 0.22f, 0.055f + hot * 0.08f, 0.025f, 0.88f);
+            ? glm::vec4(1.0f, 0.34f + hot * 0.35f, 0.035f, 0.95f)
+            : glm::vec4(0.16f + hot * 0.22f, 0.055f + hot * 0.08f, 0.025f, 0.88f);
     }
     else
     {
         const float gray = 0.18f + Random01() * 0.24f;
-        particle.color = XMFLOAT4(gray * 1.08f, gray, gray * 0.94f, 0.42f + Random01() * 0.20f);
+        particle.color = glm::vec4(gray * 1.08f, gray, gray * 0.94f, 0.42f + Random01() * 0.20f);
     }
     m_particles.push_back(particle);
 }
@@ -428,7 +415,7 @@ void DissolveParticleSystem::Update(float deltaSeconds, const SceneObject* sourc
         Reset();
         m_activeMode = mode;
     }
-    XMStoreFloat4x4(&m_sourceWorld, source->transform.Matrix());
+    m_sourceWorld = source->transform.Matrix();
 
     if (mode == 3 &&
         (m_sourceMesh != source->mesh ||
@@ -480,7 +467,7 @@ void DissolveParticleSystem::Update(float deltaSeconds, const SceneObject* sourc
         {
             continue;
         }
-        particle.position = Add(particle.position, Multiply(particle.velocity, dt));
+        particle.position += particle.velocity * dt;
         if (mode == 3)
         {
             const float flutter = std::sin(
@@ -505,7 +492,7 @@ void DissolveParticleSystem::Update(float deltaSeconds, const SceneObject* sourc
                 particle.velocity.z += std::cos(
                     particle.seed * 18.0f + particle.age * 4.1f) * 0.10f * dt;
             }
-            particle.velocity = Multiply(particle.velocity, std::exp(-0.28f * dt));
+            particle.velocity = particle.velocity * std::exp(-0.28f * dt);
         }
         else if (mode == 7)
         {
@@ -580,7 +567,7 @@ void DissolveParticleSystem::Update(float deltaSeconds, const SceneObject* sourc
 
 int DissolveParticleSystem::Render(
     const ShaderProgram& shader,
-    const XMMATRIX& viewProjection,
+    const glm::mat4& viewProjection,
     float viewportHeight,
     float time)
 {
@@ -591,32 +578,32 @@ int DissolveParticleSystem::Render(
 
     m_gpuVertices.clear();
     m_gpuVertices.reserve(m_particles.size());
-    const XMMATRIX sourceWorld = XMLoadFloat4x4(&m_sourceWorld);
+    const glm::mat4 sourceWorld = m_sourceWorld;
     for (const Particle& particle : m_particles)
     {
         const float normalizedAge = std::clamp(particle.age / std::max(particle.lifetime, 0.001f), 0.0f, 1.0f);
         Vertex vertex;
         if (m_activeMode == 3)
         {
-            XMStoreFloat3(
-                &vertex.position,
-                XMVector3TransformCoord(XMLoadFloat3(&particle.position), sourceWorld));
+            vertex.position = glm::vec3(sourceWorld * glm::vec4(particle.position, 1.0f));
         }
         else
         {
             vertex.position = particle.position;
         }
-        vertex.normal = XMFLOAT3(particle.seed, normalizedAge, static_cast<float>(m_activeMode));
-        vertex.uv = XMFLOAT2(particle.size, normalizedAge);
+        vertex.normal = glm::vec3(particle.seed, normalizedAge, static_cast<float>(m_activeMode));
+        vertex.uv = glm::vec2(particle.size, normalizedAge);
         vertex.color = particle.color;
         vertex.color.w *= 1.0f - normalizedAge;
         m_gpuVertices.push_back(vertex);
     }
 
     glUseProgram(shader.program);
-    XMFLOAT4X4 matrix;
-    XMStoreFloat4x4(&matrix, XMMatrixTranspose(viewProjection));
-    glUniformMatrix4fv(glGetUniformLocation(shader.program, "uViewProj"), 1, GL_FALSE, &matrix.m[0][0]);
+    // Phase 4: unified upload convention (GL_FALSE + value_ptr, no transpose).
+    // The old path double-transposed (XMMatrixTranspose + GL_FALSE) and shipped
+    // wrong matrices; DissolveParticle.vert has the same column-vector M*v
+    // semantics as Standard.vert, so this now matches the Standard upload.
+    UploadMat4(shader.program, "uViewProj", viewProjection);
     glUniform1f(glGetUniformLocation(shader.program, "uViewportHeight"), viewportHeight);
     glUniform1f(glGetUniformLocation(shader.program, "uTime"), time);
     glUniform1f(glGetUniformLocation(shader.program, "uParticleMode"), static_cast<float>(m_activeMode));

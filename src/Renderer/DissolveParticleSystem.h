@@ -2,7 +2,7 @@
 
 #include "Scene/SceneTypes.h"
 
-#include <DirectXMath.h>
+#include <glm/glm.hpp>
 
 #include <random>
 #include <cstddef>
@@ -20,16 +20,16 @@ public:
     void Update(float deltaSeconds, const SceneObject* source, bool effectsEnabled);
     int Render(
         const ShaderProgram& shader,
-        const DirectX::XMMATRIX& viewProjection,
+        const glm::mat4& viewProjection,
         float viewportHeight,
         float time);
 
 private:
     struct Particle
     {
-        DirectX::XMFLOAT3 position{};
-        DirectX::XMFLOAT3 velocity{};
-        DirectX::XMFLOAT4 color{};
+        glm::vec3 position{};
+        glm::vec3 velocity{};
+        glm::vec4 color{};
         float age = 0.0f;
         float lifetime = 1.0f;
         float size = 0.05f;
@@ -39,8 +39,8 @@ private:
 
     struct SurfaceSample
     {
-        DirectX::XMFLOAT3 position{};
-        DirectX::XMFLOAT3 normal{};
+        glm::vec3 position{};
+        glm::vec3 normal{};
         float burnNoise = 0.5f;
         float seed = 0.0f;
     };
@@ -60,7 +60,7 @@ private:
     std::mt19937 m_random{0x59444C56u};
     unsigned int m_vao = 0;
     unsigned int m_vertexBuffer = 0;
-    DirectX::XMFLOAT4X4 m_sourceWorld{};
+    glm::mat4 m_sourceWorld{1.0f};
     float m_sourceNoiseScale = -1.0f;
     float m_spawnAccumulator = 0.0f;
     float m_previousAmount = 0.0f;

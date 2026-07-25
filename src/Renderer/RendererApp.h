@@ -13,6 +13,8 @@
 
 #include <windows.h>
 
+#include <glm/glm.hpp>
+
 #include <string>
 
 namespace YRender
@@ -48,7 +50,7 @@ private:
     void MainLoop();
     void Update(float dt);
     void UpdateWindowTitle();
-    DirectX::XMMATRIX CameraViewProjection(float aspect) const;
+    glm::mat4 CameraViewProjection(float aspect) const;
     void Render();
     void RenderSceneObjects();
     void RenderBloomPass();
@@ -59,7 +61,7 @@ private:
     void RenderPostQuad(float mode, unsigned int inputTexture, unsigned int bloomTexture, float bloomStrength);
     bool ShouldBloom() const;
     bool ShouldDepthEffects() const;
-    void SetMat4(unsigned int program, const char* name, const DirectX::XMMATRIX& matrix) const;
+    void SetMat4(unsigned int program, const char* name, const glm::mat4& matrix) const;
 
     GLFWwindow* m_window = nullptr;
     UINT m_width = 1280;
@@ -75,11 +77,11 @@ private:
     float m_depthFogStart = 3.5f;
     float m_depthFogEnd = 14.0f;
     float m_depthFogDensity = 0.38f;
-    DirectX::XMFLOAT4 m_depthFogColor{0.62f, 0.78f, 0.84f, 1.0f};
+    glm::vec4 m_depthFogColor{0.62f, 0.78f, 0.84f, 1.0f};
     bool m_depthOutlineEnabled = true;
     float m_depthOutlineWidth = 1.25f;
     float m_depthOutlineStrength = 0.78f;
-    DirectX::XMFLOAT4 m_depthOutlineColor{0.08f, 0.18f, 0.24f, 1.0f};
+    glm::vec4 m_depthOutlineColor{0.08f, 0.18f, 0.24f, 1.0f};
     bool m_autoTurntable = true;
     bool m_captureScreenshotPending = false;
     bool m_hideShowcaseOverlay = false;

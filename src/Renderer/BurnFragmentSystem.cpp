@@ -3,12 +3,14 @@
 #include "Renderer/BurnFragmentSystem.h"
 
 #include "Renderer/IncinerationField.h"
+#include "Renderer/ShaderUniform.h"
+
+#include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
-
-using namespace DirectX;
 
 namespace YRender
 {
@@ -38,54 +40,22 @@ float Hash(float x, float y)
     return Fract(std::sin(x * 127.1f + y * 311.7f) * 43758.5453f);
 }
 
-float Hash3(const XMFLOAT3& value)
+float Hash3(const glm::vec3& value)
 {
     return Fract(std::sin(value.x * 127.1f + value.y * 311.7f + value.z * 74.7f) * 43758.5453f);
 }
 
-XMFLOAT3 Add(const XMFLOAT3& a, const XMFLOAT3& b)
-{
-    return XMFLOAT3(a.x + b.x, a.y + b.y, a.z + b.z);
-}
-
-XMFLOAT3 Subtract(const XMFLOAT3& a, const XMFLOAT3& b)
-{
-    return XMFLOAT3(a.x - b.x, a.y - b.y, a.z - b.z);
-}
-
-XMFLOAT3 Multiply(const XMFLOAT3& value, float scale)
-{
-    return XMFLOAT3(value.x * scale, value.y * scale, value.z * scale);
-}
-
-float Length(const XMFLOAT3& value)
+float Length(const glm::vec3& value)
 {
     return std::sqrt(value.x * value.x + value.y * value.y + value.z * value.z);
 }
 
-XMFLOAT3 Normalize(const XMFLOAT3& value, const XMFLOAT3& fallback)
+// glm::normalize on a zero-length vector returns NaN; preserve the old
+// hand-written Normalize fallback semantics.
+glm::vec3 Normalize(const glm::vec3& value, const glm::vec3& fallback)
 {
     const float length = Length(value);
-    return length > 0.00001f ? Multiply(value, 1.0f / length) : fallback;
-}
-
-XMFLOAT3 Cross(const XMFLOAT3& a, const XMFLOAT3& b)
-{
-    return XMFLOAT3(
-        a.y * b.z - a.z * b.y,
-        a.z * b.x - a.x * b.z,
-        a.x * b.y - a.y * b.x);
-}
-
-XMFLOAT3 RotateAroundAxis(const XMFLOAT3& value, const XMFLOAT3& axis, float angle)
-{
-    const float cosine = std::cos(angle);
-    const float sine = std::sin(angle);
-    const float dot = value.x * axis.x + value.y * axis.y + value.z * axis.z;
-    const XMFLOAT3 cross = Cross(axis, value);
-    return Add(
-        Add(Multiply(value, cosine), Multiply(cross, sine)),
-        Multiply(axis, dot * (1.0f - cosine)));
+    return length > 0.00001f ? value * (1.0f / length) : fallback;
 }
 } // namespace
 
@@ -133,8 +103,8 @@ void BurnFragmentSystem::Initialize()
 
 void BurnFragmentSystem::Reset()
 {
-    XMStoreFloat4x4(&m_sourceWorld, XMMatrixIdentity());
-    XMStoreFloat4x4(&m_sourceNormalMatrix, XMMatrixIdentity());
+    m_sourceWorld = glm::mat4(1.0f);
+    m_sourceNormalMatrix = glm::mat4(1.0f);
     m_sourceMesh = nullptr;
     m_sourceNoiseScale = -1.0f;
     m_sourceTriangles.clear();
@@ -175,21 +145,21 @@ void BurnFragmentSystem::RebuildSource(const Mesh& mesh, float noiseScale)
         return;
     }
 
-    const XMFLOAT3 boundsDiagonal = Subtract(mesh.boundsMax, mesh.boundsMin);
+    const glm::vec3 boundsDiagonal = mesh.boundsMax - mesh.boundsMin;
     const float targetEdgeLength = std::max(Length(boundsDiagonal) * 0.018f, 0.012f);
     const float resolvedNoiseScale = std::max(noiseScale, 0.01f);
     m_sourceTriangles.reserve(std::min(triangleCount * 2, kMaxSourceTriangles));
 
-    const auto interpolate = [](const std::array<XMFLOAT3, 3>& values, float b0, float b1, float b2)
+    const auto interpolate = [](const std::array<glm::vec3, 3>& values, float b0, float b1, float b2)
     {
-        return XMFLOAT3(
+        return glm::vec3(
             values[0].x * b0 + values[1].x * b1 + values[2].x * b2,
             values[0].y * b0 + values[1].y * b1 + values[2].y * b2,
             values[0].z * b0 + values[1].z * b1 + values[2].z * b2);
     };
 
-    const auto appendTriangle = [&](const std::array<XMFLOAT3, 3>& positions,
-                                    const std::array<XMFLOAT3, 3>& normals,
+    const auto appendTriangle = [&](const std::array<glm::vec3, 3>& positions,
+                                    const std::array<glm::vec3, 3>& normals,
                                     size_t sourceIndex)
     {
         if (m_sourceTriangles.size() >= kMaxSourceTriangles)
@@ -202,28 +172,28 @@ void BurnFragmentSystem::RebuildSource(const Mesh& mesh, float noiseScale)
         triangle.normals = normals;
         for (size_t corner = 0; corner < 3; ++corner)
         {
-            triangle.center = Add(triangle.center, Multiply(triangle.positions[corner], 1.0f / 3.0f));
-            triangle.normal = Add(triangle.normal, triangle.normals[corner]);
+            triangle.center += triangle.positions[corner] * (1.0f / 3.0f);
+            triangle.normal += triangle.normals[corner];
         }
 
-        const XMFLOAT3 edgeA = Subtract(triangle.positions[1], triangle.positions[0]);
-        const XMFLOAT3 edgeB = Subtract(triangle.positions[2], triangle.positions[0]);
-        const XMFLOAT3 faceNormal = Cross(edgeA, edgeB);
+        const glm::vec3 edgeA = triangle.positions[1] - triangle.positions[0];
+        const glm::vec3 edgeB = triangle.positions[2] - triangle.positions[0];
+        const glm::vec3 faceNormal = glm::cross(edgeA, edgeB);
         if (Length(faceNormal) < 0.000001f)
         {
             return;
         }
-        triangle.normal = Normalize(triangle.normal, Normalize(faceNormal, XMFLOAT3(0.0f, 1.0f, 0.0f)));
-        triangle.seed = Hash3(Add(triangle.center, XMFLOAT3(
+        triangle.normal = Normalize(triangle.normal, Normalize(faceNormal, glm::vec3(0.0f, 1.0f, 0.0f)));
+        triangle.seed = Hash3(triangle.center + glm::vec3(
             static_cast<float>(sourceIndex) * 0.013f,
             static_cast<float>(sourceIndex) * 0.007f,
-            static_cast<float>(sourceIndex) * 0.019f)));
+            static_cast<float>(sourceIndex) * 0.019f));
         triangle.rotationAxis = Normalize(
-            XMFLOAT3(
+            glm::vec3(
                 Hash(triangle.seed * 31.0f, 4.0f) * 2.0f - 1.0f,
                 Hash(triangle.seed * 47.0f, 8.0f) * 2.0f - 1.0f,
                 Hash(triangle.seed * 59.0f, 2.0f) * 2.0f - 1.0f),
-            XMFLOAT3(0.0f, 1.0f, 0.0f));
+            glm::vec3(0.0f, 1.0f, 0.0f));
 
         triangle.burnNoise = IncinerationField::BurnNoise(
             triangle.center,
@@ -243,8 +213,8 @@ void BurnFragmentSystem::RebuildSource(const Mesh& mesh, float noiseScale)
             continue;
         }
 
-        std::array<XMFLOAT3, 3> sourcePositions{};
-        std::array<XMFLOAT3, 3> sourceNormals{};
+        std::array<glm::vec3, 3> sourcePositions{};
+        std::array<glm::vec3, 3> sourceNormals{};
         const uint32_t indices[3]{i0, i1, i2};
         for (size_t corner = 0; corner < 3; ++corner)
         {
@@ -253,9 +223,9 @@ void BurnFragmentSystem::RebuildSource(const Mesh& mesh, float noiseScale)
         }
 
         const float maximumEdge = std::max({
-            Length(Subtract(sourcePositions[1], sourcePositions[0])),
-            Length(Subtract(sourcePositions[2], sourcePositions[1])),
-            Length(Subtract(sourcePositions[0], sourcePositions[2])),
+            Length(sourcePositions[1] - sourcePositions[0]),
+            Length(sourcePositions[2] - sourcePositions[1]),
+            Length(sourcePositions[0] - sourcePositions[2]),
         });
         const int segments = std::clamp(
             static_cast<int>(std::ceil(maximumEdge / targetEdgeLength)),
@@ -281,11 +251,11 @@ void BurnFragmentSystem::RebuildSource(const Mesh& mesh, float noiseScale)
                     b2 *= 0.999f / sum;
                 }
             }
-            return XMFLOAT2(b1, b2);
+            return glm::vec2(b1, b2);
         };
         const auto samplePosition = [&](int row, int column)
         {
-            const XMFLOAT2 barycentric = sampleBarycentric(row, column);
+            const glm::vec2 barycentric = sampleBarycentric(row, column);
             return interpolate(
                 sourcePositions,
                 1.0f - barycentric.x - barycentric.y,
@@ -294,14 +264,14 @@ void BurnFragmentSystem::RebuildSource(const Mesh& mesh, float noiseScale)
         };
         const auto sampleNormal = [&](int row, int column)
         {
-            const XMFLOAT2 barycentric = sampleBarycentric(row, column);
+            const glm::vec2 barycentric = sampleBarycentric(row, column);
             return Normalize(
                 interpolate(
                     sourceNormals,
                     1.0f - barycentric.x - barycentric.y,
                     barycentric.x,
                     barycentric.y),
-                XMFLOAT3(0.0f, 1.0f, 0.0f));
+                glm::vec3(0.0f, 1.0f, 0.0f));
         };
 
         for (int row = 0; row < segments && m_sourceTriangles.size() < kMaxSourceTriangles; ++row)
@@ -310,12 +280,12 @@ void BurnFragmentSystem::RebuildSource(const Mesh& mesh, float noiseScale)
                  column < segments - row && m_sourceTriangles.size() < kMaxSourceTriangles;
                  ++column)
             {
-                const std::array<XMFLOAT3, 3> lowerPositions{
+                const std::array<glm::vec3, 3> lowerPositions{
                     samplePosition(row, column),
                     samplePosition(row + 1, column),
                     samplePosition(row, column + 1),
                 };
-                const std::array<XMFLOAT3, 3> lowerNormals{
+                const std::array<glm::vec3, 3> lowerNormals{
                     sampleNormal(row, column),
                     sampleNormal(row + 1, column),
                     sampleNormal(row, column + 1),
@@ -327,12 +297,12 @@ void BurnFragmentSystem::RebuildSource(const Mesh& mesh, float noiseScale)
 
                 if (row + column < segments - 1)
                 {
-                    const std::array<XMFLOAT3, 3> upperPositions{
+                    const std::array<glm::vec3, 3> upperPositions{
                         samplePosition(row + 1, column),
                         samplePosition(row + 1, column + 1),
                         samplePosition(row, column + 1),
                     };
-                    const std::array<XMFLOAT3, 3> upperNormals{
+                    const std::array<glm::vec3, 3> upperNormals{
                         sampleNormal(row + 1, column),
                         sampleNormal(row + 1, column + 1),
                         sampleNormal(row, column + 1),
@@ -358,39 +328,37 @@ void BurnFragmentSystem::SpawnFragment(
 
     AshFragment fragment;
     fragment.seed = source.seed;
-    std::array<XMFLOAT3, 3> localPositions{};
-    std::array<XMFLOAT3, 3> localNormals{};
+    std::array<glm::vec3, 3> localPositions{};
+    std::array<glm::vec3, 3> localNormals{};
     for (size_t corner = 0; corner < 3; ++corner)
     {
         localPositions[corner] = source.positions[corner];
         localNormals[corner] = source.normals[corner];
-        fragment.position = Add(fragment.position, Multiply(localPositions[corner], 1.0f / 3.0f));
+        fragment.position += localPositions[corner] * (1.0f / 3.0f);
     }
 
     fragment.faceNormal = Normalize(
-        Cross(
-            Subtract(localPositions[1], localPositions[0]),
-            Subtract(localPositions[2], localPositions[0])),
-        XMFLOAT3(0.0f, 1.0f, 0.0f));
-    if (fragment.faceNormal.x * localNormals[0].x +
-        fragment.faceNormal.y * localNormals[0].y +
-        fragment.faceNormal.z * localNormals[0].z < 0.0f)
+        glm::cross(
+            localPositions[1] - localPositions[0],
+            localPositions[2] - localPositions[0]),
+        glm::vec3(0.0f, 1.0f, 0.0f));
+    if (glm::dot(fragment.faceNormal, localNormals[0]) < 0.0f)
     {
-        fragment.faceNormal = Multiply(fragment.faceNormal, -1.0f);
+        fragment.faceNormal = fragment.faceNormal * -1.0f;
     }
 
     fragment.basis[0] = Normalize(
-        Subtract(localPositions[1], localPositions[0]),
-        XMFLOAT3(1.0f, 0.0f, 0.0f));
+        localPositions[1] - localPositions[0],
+        glm::vec3(1.0f, 0.0f, 0.0f));
     fragment.basis[2] = fragment.faceNormal;
     fragment.basis[1] = Normalize(
-        Cross(fragment.basis[2], fragment.basis[0]),
-        XMFLOAT3(0.0f, 1.0f, 0.0f));
+        glm::cross(fragment.basis[2], fragment.basis[0]),
+        glm::vec3(0.0f, 1.0f, 0.0f));
 
     const float maximumEdge = std::max({
-        Length(Subtract(localPositions[1], localPositions[0])),
-        Length(Subtract(localPositions[2], localPositions[1])),
-        Length(Subtract(localPositions[0], localPositions[2])),
+        Length(localPositions[1] - localPositions[0]),
+        Length(localPositions[2] - localPositions[1]),
+        Length(localPositions[0] - localPositions[2]),
     });
     const float baseRadius = std::clamp(
         maximumEdge * (0.085f + Hash(source.seed * 67.0f, 5.0f) * 0.105f),
@@ -401,7 +369,7 @@ void BurnFragmentSystem::SpawnFragment(
     {
         // Compact irregular ash clumps. All three axes have meaningful size,
         // so the silhouette remains volumetric from every camera angle.
-        fragment.radii = XMFLOAT3(
+        fragment.radii = glm::vec3(
             baseRadius * (0.72f + Hash(source.seed * 71.0f, 2.0f) * 0.55f),
             baseRadius * (0.68f + Hash(source.seed * 79.0f, 4.0f) * 0.70f),
             baseRadius * (0.58f + Hash(source.seed * 83.0f, 6.0f) * 0.58f));
@@ -410,7 +378,7 @@ void BurnFragmentSystem::SpawnFragment(
     {
         // Keep only a few mildly elongated pieces. Their depth is still large
         // enough to retain a solid silhouette when viewed from the side.
-        fragment.radii = XMFLOAT3(
+        fragment.radii = glm::vec3(
             baseRadius * (0.76f + Hash(source.seed * 71.0f, 2.0f) * 0.38f),
             baseRadius * (1.02f + Hash(source.seed * 79.0f, 4.0f) * 0.54f),
             baseRadius * (0.68f + Hash(source.seed * 83.0f, 6.0f) * 0.40f));
@@ -423,42 +391,39 @@ void BurnFragmentSystem::SpawnFragment(
         ? -0.025f - Hash(source.seed * 127.0f, 31.0f) * 0.035f
         : 0.075f + Hash(source.seed * 127.0f, 31.0f) * 0.14f;
 
-    const XMFLOAT3 randomDirection = Normalize(
-        XMFLOAT3(
+    const glm::vec3 randomDirection = Normalize(
+        glm::vec3(
             Hash(source.seed * 73.0f, 3.0f) * 2.0f - 1.0f,
             Hash(source.seed * 89.0f, 11.0f) * 2.0f - 1.0f,
             Hash(source.seed * 97.0f, 17.0f) * 2.0f - 1.0f),
-        XMFLOAT3(1.0f, 0.0f, 0.0f));
+        glm::vec3(1.0f, 0.0f, 0.0f));
     const float randomSpeed = 0.030f + Hash(source.seed * 139.0f, 43.0f) * 0.085f;
-    fragment.velocity = Add(
-        Add(
-            Multiply(fragment.faceNormal, 0.018f + source.seed * 0.085f),
-            Multiply(randomDirection, randomSpeed)),
-        Add(
-            Multiply(material.dissolveParticleWind, 0.22f + source.seed * 0.22f),
-            XMFLOAT3(
-                0.0f,
-                0.040f + Hash(source.seed * 151.0f, 37.0f) * 0.105f,
-                0.0f)));
-    fragment.angularVelocity = Multiply(
-        Normalize(
-            Add(source.rotationAxis, Multiply(randomDirection, 0.72f)),
-            XMFLOAT3(0.0f, 1.0f, 0.0f)),
-        2.2f + Hash(source.seed * 101.0f, 19.0f) * 8.4f);
+    fragment.velocity =
+        fragment.faceNormal * (0.018f + source.seed * 0.085f) +
+        randomDirection * randomSpeed +
+        material.dissolveParticleWind * (0.22f + source.seed * 0.22f) +
+        glm::vec3(
+            0.0f,
+            0.040f + Hash(source.seed * 151.0f, 37.0f) * 0.105f,
+            0.0f);
+    fragment.angularVelocity = Normalize(
+        source.rotationAxis + randomDirection * 0.72f,
+        glm::vec3(0.0f, 1.0f, 0.0f)) *
+        (2.2f + Hash(source.seed * 101.0f, 19.0f) * 8.4f);
 
     // Give every fragment a different orientation before its first rendered
     // frame. Waiting for angular velocity to accumulate made adjacent pieces
     // expose the same face and read as one aligned sheet.
-    const XMFLOAT3 initialRotationAxis = Normalize(
-        XMFLOAT3(
+    const glm::vec3 initialRotationAxis = Normalize(
+        glm::vec3(
             Hash(source.seed * 163.0f, 47.0f) * 2.0f - 1.0f,
             Hash(source.seed * 173.0f, 53.0f) * 2.0f - 1.0f,
             Hash(source.seed * 181.0f, 59.0f) * 2.0f - 1.0f),
-        XMFLOAT3(0.0f, 1.0f, 0.0f));
-    const float initialAngle = Hash(source.seed * 211.0f, 61.0f) * XM_2PI;
-    XMStoreFloat4(
-        &fragment.orientation,
-        XMQuaternionRotationAxis(XMLoadFloat3(&initialRotationAxis), initialAngle));
+        glm::vec3(0.0f, 1.0f, 0.0f));
+    const float initialAngle = Hash(source.seed * 211.0f, 61.0f) * glm::two_pi<float>();
+    // angleAxis takes (angle, axis) - argument order swapped vs
+    // XMQuaternionRotationAxis(axis, angle).
+    fragment.orientation = glm::angleAxis(initialAngle, initialRotationAxis);
 
     // Start on the source surface and only add sub-fragment-scale variation.
     // The subsequent velocity field creates volume; a large birth offset
@@ -471,9 +436,9 @@ void BurnFragmentSystem::SpawnFragment(
     const float normalOffset =
         (0.25f + Hash(source.seed * 239.0f, 79.0f) * 0.75f) *
         (0.003f + Hash(source.seed * 241.0f, 83.0f) * 0.009f);
-    fragment.position = Add(fragment.position, Multiply(fragment.basis[0], tangentOffset));
-    fragment.position = Add(fragment.position, Multiply(fragment.basis[1], bitangentOffset));
-    fragment.position = Add(fragment.position, Multiply(fragment.faceNormal, normalOffset));
+    fragment.position += fragment.basis[0] * tangentOffset;
+    fragment.position += fragment.basis[1] * bitangentOffset;
+    fragment.position += fragment.faceNormal * normalOffset;
     m_activeFragments.push_back(fragment);
 }
 
@@ -493,9 +458,9 @@ void BurnFragmentSystem::Simulate(float deltaSeconds, const Material& material, 
             continue;
         }
 
-        const XMFLOAT3& p = fragment.position;
+        const glm::vec3& p = fragment.position;
         const float phase = fragment.seed * 31.0f;
-        XMFLOAT3 curl{
+        glm::vec3 curl{
             std::sin(p.z * 3.1f + time * 1.17f + phase) -
                 std::cos(p.y * 2.7f - time * 0.83f + phase * 0.71f),
             std::sin(p.x * 2.6f - time * 0.69f + phase * 1.13f) -
@@ -503,14 +468,13 @@ void BurnFragmentSystem::Simulate(float deltaSeconds, const Material& material, 
             std::sin(p.y * 3.0f + time * 0.77f + phase * 0.83f) -
                 std::cos(p.x * 2.9f - time * 1.03f + phase * 1.27f),
         };
-        curl = Normalize(curl, XMFLOAT3(0.0f, 1.0f, 0.0f));
+        curl = Normalize(curl, glm::vec3(0.0f, 1.0f, 0.0f));
         const float normalizedAge = Saturate(fragment.age / std::max(fragment.lifetime, 0.001f));
         const float turbulence = (0.15f + fragment.seed * 0.22f) * fragment.flutter *
             (0.55f + SmoothStep(0.08f, 0.42f, normalizedAge) * 0.45f);
-        fragment.velocity = Add(fragment.velocity, Multiply(curl, turbulence * dt));
-        fragment.velocity = Add(
-            fragment.velocity,
-            Multiply(material.dissolveParticleWind, (0.10f + normalizedAge * 0.12f) * dt));
+        fragment.velocity += curl * (turbulence * dt);
+        fragment.velocity +=
+            material.dissolveParticleWind * ((0.10f + normalizedAge * 0.12f) * dt);
         fragment.velocity.y += fragment.buoyancy * dt;
         const float spiral =
             std::sin(time * (2.1f + fragment.seed * 1.7f) + fragment.seed * 47.0f) *
@@ -525,21 +489,20 @@ void BurnFragmentSystem::Simulate(float deltaSeconds, const Material& material, 
         fragment.velocity.z +=
             std::cos(time * 0.61f + fragment.seed * 83.0f) *
             (0.028f + (1.0f - fragment.seed) * 0.050f) * dt;
-        fragment.velocity = Multiply(fragment.velocity, std::exp(-(0.76f + fragment.seed * 0.28f) * dt));
-        fragment.position = Add(fragment.position, Multiply(fragment.velocity, dt));
+        fragment.velocity = fragment.velocity * std::exp(-(0.76f + fragment.seed * 0.28f) * dt);
+        fragment.position += fragment.velocity * dt;
 
-        fragment.angularVelocity = Add(
-            fragment.angularVelocity,
-            Multiply(curl, (0.38f + normalizedAge * 0.46f) * dt));
-        fragment.angularVelocity = Multiply(fragment.angularVelocity, std::exp(-0.12f * dt));
+        fragment.angularVelocity += curl * ((0.38f + normalizedAge * 0.46f) * dt);
+        fragment.angularVelocity = fragment.angularVelocity * std::exp(-0.12f * dt);
         const float angularSpeed = Length(fragment.angularVelocity);
         if (angularSpeed > 0.0001f)
         {
-            const XMVECTOR axis = XMVector3Normalize(XMLoadFloat3(&fragment.angularVelocity));
-            const XMVECTOR deltaRotation = XMQuaternionRotationAxis(axis, angularSpeed * dt);
-            XMVECTOR orientation = XMLoadFloat4(&fragment.orientation);
-            orientation = XMQuaternionNormalize(XMQuaternionMultiply(orientation, deltaRotation));
-            XMStoreFloat4(&fragment.orientation, orientation);
+            const glm::vec3 axis = Normalize(fragment.angularVelocity, glm::vec3(0.0f, 1.0f, 0.0f));
+            const glm::quat deltaRotation = glm::angleAxis(angularSpeed * dt, axis);
+            // Both XMQuaternionMultiply and GLM operator* compute the same
+            // Hamilton product, and XMVector3Rotate(v,q) == q*vec4(v,0). So the
+            // accumulation order carries over unchanged: orientation * delta.
+            fragment.orientation = glm::normalize(fragment.orientation * deltaRotation);
         }
     }
 
@@ -555,8 +518,8 @@ void BurnFragmentSystem::BuildGpuVertices()
 {
     m_gpuVertices.clear();
     m_gpuVertices.reserve(m_activeFragments.size() * 60);
-    const XMMATRIX sourceWorld = XMLoadFloat4x4(&m_sourceWorld);
-    const XMMATRIX sourceNormalMatrix = XMLoadFloat4x4(&m_sourceNormalMatrix);
+    const glm::mat4 sourceWorld = m_sourceWorld;
+    const glm::mat4 sourceNormalMatrix = m_sourceNormalMatrix;
 
     for (const AshFragment& fragment : m_activeFragments)
     {
@@ -566,61 +529,58 @@ void BurnFragmentSystem::BuildGpuVertices()
         const float cooling = SmoothStep(0.015f, 0.12f, normalizedAge);
         const float fade = 1.0f - SmoothStep(0.74f, 1.0f, normalizedAge);
         const float ash = 0.13f + fragment.seed * 0.18f;
-        const XMFLOAT3 hotColor{
+        const glm::vec3 hotColor{
             0.11f + fragment.seed * 0.045f,
             0.012f + fragment.seed * 0.010f,
             0.002f,
         };
-        const XMFLOAT3 ashColor{ash * 1.06f, ash, ash * 0.93f};
-        const XMFLOAT4 color{
+        const glm::vec3 ashColor{ash * 1.06f, ash, ash * 0.93f};
+        const glm::vec4 color{
             hotColor.x + (ashColor.x - hotColor.x) * cooling,
             hotColor.y + (ashColor.y - hotColor.y) * cooling,
             hotColor.z + (ashColor.z - hotColor.z) * cooling,
             fade,
         };
 
-        const XMVECTOR orientation = XMLoadFloat4(&fragment.orientation);
-        std::array<XMFLOAT3, 3> axes{};
+        const glm::quat orientation = fragment.orientation;
+        std::array<glm::vec3, 3> axes{};
         for (size_t axis = 0; axis < 3; ++axis)
         {
-            XMStoreFloat3(
-                &axes[axis],
-                XMVector3Normalize(XMVector3Rotate(XMLoadFloat3(&fragment.basis[axis]), orientation)));
+            // XMVector3Rotate(v, q) == q * vec4(v, 0).
+            axes[axis] = Normalize(
+                glm::vec3(orientation * glm::vec4(fragment.basis[axis], 0.0f)),
+                glm::vec3(0.0f, 1.0f, 0.0f));
         }
 
-        const auto appendTriangle = [&](const XMFLOAT3& p0,
-                                        const XMFLOAT3& p1,
-                                        const XMFLOAT3& p2,
+        const auto appendTriangle = [&](const glm::vec3& p0,
+                                        const glm::vec3& p1,
+                                        const glm::vec3& p2,
                                         bool glowingFace)
         {
-            const XMFLOAT3 localTriangleNormal = Normalize(
-                Cross(Subtract(p1, p0), Subtract(p2, p0)),
+            const glm::vec3 localTriangleNormal = Normalize(
+                glm::cross(p1 - p0, p2 - p0),
                 axes[2]);
-            const XMFLOAT3 localPositions[3]{p0, p1, p2};
+            const glm::vec3 localPositions[3]{p0, p1, p2};
             for (size_t corner = 0; corner < 3; ++corner)
             {
                 FragmentVertex vertex;
-                XMStoreFloat3(
-                    &vertex.position,
-                    XMVector3TransformCoord(XMLoadFloat3(&localPositions[corner]), sourceWorld));
-                XMStoreFloat3(
-                    &vertex.normal,
-                    XMVector3Normalize(XMVector3TransformNormal(
-                        XMLoadFloat3(&localTriangleNormal),
-                        sourceNormalMatrix)));
-                vertex.uv = XMFLOAT2(normalizedAge, fragment.seed);
+                vertex.position = glm::vec3(sourceWorld * glm::vec4(localPositions[corner], 1.0f));
+                vertex.normal = Normalize(
+                    glm::vec3(sourceNormalMatrix * glm::vec4(localTriangleNormal, 0.0f)),
+                    axes[2]);
+                vertex.uv = glm::vec2(normalizedAge, fragment.seed);
                 vertex.color = color;
                 if (glowingFace)
                 {
                     vertex.barycentric = corner == 0
-                        ? XMFLOAT3(1.0f, 0.0f, 0.0f)
+                        ? glm::vec3(1.0f, 0.0f, 0.0f)
                         : (corner == 1
-                            ? XMFLOAT3(0.0f, 1.0f, 0.0f)
-                            : XMFLOAT3(0.0f, 0.0f, 1.0f));
+                            ? glm::vec3(0.0f, 1.0f, 0.0f)
+                            : glm::vec3(0.0f, 0.0f, 1.0f));
                 }
                 else
                 {
-                    vertex.barycentric = XMFLOAT3(-1.0f, -1.0f, -1.0f);
+                    vertex.barycentric = glm::vec3(-1.0f, -1.0f, -1.0f);
                 }
                 m_gpuVertices.push_back(vertex);
             }
@@ -628,10 +588,10 @@ void BurnFragmentSystem::BuildGpuVertices()
 
         const auto makePoint = [&](float x, float y, float z)
         {
-            XMFLOAT3 point = fragment.position;
-            point = Add(point, Multiply(axes[0], x * fragment.radii.x * scale));
-            point = Add(point, Multiply(axes[1], y * fragment.radii.y * scale));
-            point = Add(point, Multiply(axes[2], z * fragment.radii.z * scale));
+            glm::vec3 point = fragment.position;
+            point += axes[0] * (x * fragment.radii.x * scale);
+            point += axes[1] * (y * fragment.radii.y * scale);
+            point += axes[2] * (z * fragment.radii.z * scale);
             return point;
         };
 
@@ -641,15 +601,15 @@ void BurnFragmentSystem::BuildGpuVertices()
         const float asymmetry = (fragment.seed - 0.5f) * 0.34f;
         constexpr float t = 1.61803398875f;
         constexpr float unitScale = 0.52573111212f;
-        const std::array<XMFLOAT3, 12> rawPoints{
-            XMFLOAT3(-1.0f, t, 0.0f), XMFLOAT3(1.0f, t, 0.0f),
-            XMFLOAT3(-1.0f, -t, 0.0f), XMFLOAT3(1.0f, -t, 0.0f),
-            XMFLOAT3(0.0f, -1.0f, t), XMFLOAT3(0.0f, 1.0f, t),
-            XMFLOAT3(0.0f, -1.0f, -t), XMFLOAT3(0.0f, 1.0f, -t),
-            XMFLOAT3(t, 0.0f, -1.0f), XMFLOAT3(t, 0.0f, 1.0f),
-            XMFLOAT3(-t, 0.0f, -1.0f), XMFLOAT3(-t, 0.0f, 1.0f),
+        const std::array<glm::vec3, 12> rawPoints{
+            glm::vec3(-1.0f, t, 0.0f), glm::vec3(1.0f, t, 0.0f),
+            glm::vec3(-1.0f, -t, 0.0f), glm::vec3(1.0f, -t, 0.0f),
+            glm::vec3(0.0f, -1.0f, t), glm::vec3(0.0f, 1.0f, t),
+            glm::vec3(0.0f, -1.0f, -t), glm::vec3(0.0f, 1.0f, -t),
+            glm::vec3(t, 0.0f, -1.0f), glm::vec3(t, 0.0f, 1.0f),
+            glm::vec3(-t, 0.0f, -1.0f), glm::vec3(-t, 0.0f, 1.0f),
         };
-        std::array<XMFLOAT3, 12> points{};
+        std::array<glm::vec3, 12> points{};
         for (size_t pointIndex = 0; pointIndex < rawPoints.size(); ++pointIndex)
         {
             const float jitter = 0.84f + Hash(
@@ -700,10 +660,10 @@ void BurnFragmentSystem::Update(float deltaSeconds, const SceneObject* source, b
 
     const Mesh& mesh = *source->mesh;
     const Material& material = source->material;
-    const XMMATRIX world = source->transform.Matrix();
-    const XMMATRIX normalMatrix = XMMatrixTranspose(XMMatrixInverse(nullptr, world));
-    XMStoreFloat4x4(&m_sourceWorld, world);
-    XMStoreFloat4x4(&m_sourceNormalMatrix, normalMatrix);
+    const glm::mat4 world = source->transform.Matrix();
+    const glm::mat4 normalMatrix = glm::transpose(glm::inverse(world));
+    m_sourceWorld = world;
+    m_sourceNormalMatrix = normalMatrix;
     if (m_sourceMesh != &mesh ||
         std::abs(m_sourceNoiseScale - material.dissolveNoiseScale) > 0.025f)
     {
@@ -780,8 +740,8 @@ void BurnFragmentSystem::Update(float deltaSeconds, const SceneObject* source, b
 
 int BurnFragmentSystem::Render(
     const ShaderProgram& shader,
-    const XMMATRIX& viewProjection,
-    const XMFLOAT3& cameraPosition,
+    const glm::mat4& viewProjection,
+    const glm::vec3& cameraPosition,
     float time)
 {
     if (m_gpuVertices.empty() || shader.program == 0 || m_vao == 0)
@@ -790,9 +750,11 @@ int BurnFragmentSystem::Render(
     }
 
     glUseProgram(shader.program);
-    XMFLOAT4X4 matrix;
-    XMStoreFloat4x4(&matrix, XMMatrixTranspose(viewProjection));
-    glUniformMatrix4fv(glGetUniformLocation(shader.program, "uViewProj"), 1, GL_FALSE, &matrix.m[0][0]);
+    // Phase 4: unified upload convention (GL_FALSE + value_ptr, no transpose).
+    // The old path double-transposed (XMMatrixTranspose + GL_FALSE) and shipped
+    // wrong matrices; BurnFragment.vert has the same column-vector M*v semantics
+    // as Standard.vert, so this now matches the Standard upload and is correct.
+    UploadMat4(shader.program, "uViewProj", viewProjection);
     glUniform3f(
         glGetUniformLocation(shader.program, "uCameraPosition"),
         cameraPosition.x,

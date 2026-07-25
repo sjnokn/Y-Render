@@ -2,6 +2,8 @@
 
 #include "Scene/SceneTypes.h"
 
+#include <glm/glm.hpp>
+
 #include <algorithm>
 #include <cmath>
 
@@ -53,7 +55,7 @@ inline float FractalNoise(float x, float y)
     return Saturate(result);
 }
 
-inline float BurnNoise(const DirectX::XMFLOAT3& position, float noiseScale)
+inline float BurnNoise(const glm::vec3& position, float noiseScale)
 {
     const float scale = std::max(noiseScale, 0.01f);
     const float noiseXY = FractalNoise(position.x * scale, position.y * scale);
@@ -66,34 +68,34 @@ inline float BurnNoise(const DirectX::XMFLOAT3& position, float noiseScale)
     return coarseNoise * 0.72f + fineNoise * 0.28f;
 }
 
-inline DirectX::XMFLOAT3 NormalizedDirection(const DirectX::XMFLOAT3& value)
+inline glm::vec3 NormalizedDirection(const glm::vec3& value)
 {
     const float length = std::sqrt(
         value.x * value.x + value.y * value.y + value.z * value.z);
     if (length <= 0.001f)
     {
-        return DirectX::XMFLOAT3(0.0f, 1.0f, 0.0f);
+        return glm::vec3(0.0f, 1.0f, 0.0f);
     }
-    return DirectX::XMFLOAT3(value.x / length, value.y / length, value.z / length);
+    return glm::vec3(value.x / length, value.y / length, value.z / length);
 }
 
 inline float EvaluateFromNoise(
-    const DirectX::XMFLOAT3& position,
+    const glm::vec3& position,
     float burnNoise,
     const Mesh& mesh,
     const Material& material)
 {
-    const DirectX::XMFLOAT3 boundsSize{
+    const glm::vec3 boundsSize{
         std::max(mesh.boundsMax.x - mesh.boundsMin.x, 0.0001f),
         std::max(mesh.boundsMax.y - mesh.boundsMin.y, 0.0001f),
         std::max(mesh.boundsMax.z - mesh.boundsMin.z, 0.0001f),
     };
-    const DirectX::XMFLOAT3 local01{
+    const glm::vec3 local01{
         Saturate((position.x - mesh.boundsMin.x) / boundsSize.x),
         Saturate((position.y - mesh.boundsMin.y) / boundsSize.y),
         Saturate((position.z - mesh.boundsMin.z) / boundsSize.z),
     };
-    const DirectX::XMFLOAT3 direction = NormalizedDirection(material.dissolveDirection);
+    const glm::vec3 direction = NormalizedDirection(material.dissolveDirection);
     const float directionSpan = std::max(
         std::abs(direction.x) + std::abs(direction.y) + std::abs(direction.z),
         0.001f);
@@ -108,7 +110,7 @@ inline float EvaluateFromNoise(
 }
 
 inline float Evaluate(
-    const DirectX::XMFLOAT3& position,
+    const glm::vec3& position,
     const Mesh& mesh,
     const Material& material)
 {

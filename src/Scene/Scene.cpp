@@ -1,8 +1,8 @@
 #include "Scene/Scene.h"
 
-#include <cmath>
+#include <glm/glm.hpp>
 
-using namespace DirectX;
+#include <cmath>
 
 namespace YRender
 {
@@ -22,35 +22,35 @@ void Scene::BuildDemo(int demoIndex, Mesh& characterMesh, Mesh& planeMesh, bool 
     m_directionalLights.clear();
     if (demoIndex == 0)
     {
-        m_directionalLights.push_back({XMFLOAT3(-0.40f, -0.82f, 0.28f), 1.10f, XMFLOAT3(1.0f, 0.93f, 0.82f), 0.0f});
-        m_directionalLights.push_back({XMFLOAT3(0.72f, -0.36f, -0.42f), 0.38f, XMFLOAT3(0.42f, 0.60f, 1.0f), 0.0f});
+        m_directionalLights.push_back({glm::vec3(-0.40f, -0.82f, 0.28f), 1.10f, glm::vec3(1.0f, 0.93f, 0.82f), 0.0f});
+        m_directionalLights.push_back({glm::vec3(0.72f, -0.36f, -0.42f), 0.38f, glm::vec3(0.42f, 0.60f, 1.0f), 0.0f});
     }
     else if (demoIndex == 1)
     {
-        m_directionalLights.push_back({XMFLOAT3(-0.55f, -0.72f, 0.42f), 1.00f, XMFLOAT3(1.0f, 0.82f, 0.72f), 0.0f});
-        m_directionalLights.push_back({XMFLOAT3(0.62f, -0.25f, -0.58f), 0.55f, XMFLOAT3(0.38f, 0.72f, 1.0f), 0.0f});
+        m_directionalLights.push_back({glm::vec3(-0.55f, -0.72f, 0.42f), 1.00f, glm::vec3(1.0f, 0.82f, 0.72f), 0.0f});
+        m_directionalLights.push_back({glm::vec3(0.62f, -0.25f, -0.58f), 0.55f, glm::vec3(0.38f, 0.72f, 1.0f), 0.0f});
     }
     else if (demoIndex == 2)
     {
-        m_directionalLights.push_back({XMFLOAT3(-0.28f, -0.78f, 0.50f), 1.15f, XMFLOAT3(1.0f, 0.70f, 0.42f), 0.0f});
-        m_directionalLights.push_back({XMFLOAT3(0.58f, -0.32f, -0.48f), 0.42f, XMFLOAT3(0.36f, 0.48f, 1.0f), 0.0f});
+        m_directionalLights.push_back({glm::vec3(-0.28f, -0.78f, 0.50f), 1.15f, glm::vec3(1.0f, 0.70f, 0.42f), 0.0f});
+        m_directionalLights.push_back({glm::vec3(0.58f, -0.32f, -0.48f), 0.42f, glm::vec3(0.36f, 0.48f, 1.0f), 0.0f});
     }
     else
     {
-        m_directionalLights.push_back({XMFLOAT3(-0.42f, -0.76f, 0.38f), 1.05f, XMFLOAT3(0.92f, 0.96f, 1.0f), 0.0f});
-        m_directionalLights.push_back({XMFLOAT3(0.55f, -0.28f, -0.50f), 0.34f, XMFLOAT3(0.42f, 0.72f, 0.86f), 0.0f});
+        m_directionalLights.push_back({glm::vec3(-0.42f, -0.76f, 0.38f), 1.05f, glm::vec3(0.92f, 0.96f, 1.0f), 0.0f});
+        m_directionalLights.push_back({glm::vec3(0.55f, -0.28f, -0.50f), 0.34f, glm::vec3(0.42f, 0.72f, 0.86f), 0.0f});
     }
 
     SceneObject floor;
     floor.name = "Showcase Ground";
     floor.mesh = &planeMesh;
-    floor.material.baseColor = demoIndex == 0 ? XMFLOAT4(0.58f, 0.74f, 0.74f, 1.0f) : (demoIndex == 1 ? XMFLOAT4(0.58f, 0.70f, 0.76f, 1.0f) : (demoIndex == 2 ? XMFLOAT4(0.52f, 0.72f, 0.66f, 1.0f) : XMFLOAT4(0.55f, 0.72f, 0.76f, 1.0f)));
-    floor.material.ambientColor = XMFLOAT4(0.22f, 0.28f, 0.28f, 1.0f);
+    floor.material.baseColor = demoIndex == 0 ? glm::vec4(0.58f, 0.74f, 0.74f, 1.0f) : (demoIndex == 1 ? glm::vec4(0.58f, 0.70f, 0.76f, 1.0f) : (demoIndex == 2 ? glm::vec4(0.52f, 0.72f, 0.66f, 1.0f) : glm::vec4(0.55f, 0.72f, 0.76f, 1.0f)));
+    floor.material.ambientColor = glm::vec4(0.22f, 0.28f, 0.28f, 1.0f);
     floor.material.diffuseIntensity = 0.62f;
     floor.material.specularIntensity = 0.18f;
     floor.material.specularPower = 32.0f;
     floor.material.useAlbedoTexture = false;
-    floor.transform.position = XMFLOAT3(0.0f, -1.0f, 0.0f);
+    floor.transform.position = glm::vec3(0.0f, -1.0f, 0.0f);
     Add(floor);
 
     SceneObject character;
@@ -60,13 +60,13 @@ void Scene::BuildDemo(int demoIndex, Mesh& characterMesh, Mesh& planeMesh, bool 
         character.name += " (Fallback)";
     }
     character.mesh = &characterMesh;
-    character.material.baseColor = externalCharacterLoaded ? XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f) : XMFLOAT4(0.45f, 0.74f, 0.95f, 1.0f);
-    character.material.ambientColor = demoIndex == 0 ? XMFLOAT4(0.13f, 0.15f, 0.19f, 1.0f) : (demoIndex == 1 ? XMFLOAT4(0.20f, 0.16f, 0.24f, 1.0f) : (demoIndex == 2 ? XMFLOAT4(0.10f, 0.08f, 0.16f, 1.0f) : XMFLOAT4(0.16f, 0.20f, 0.24f, 1.0f)));
+    character.material.baseColor = externalCharacterLoaded ? glm::vec4(1.0f, 1.0f, 1.0f, 1.0f) : glm::vec4(0.45f, 0.74f, 0.95f, 1.0f);
+    character.material.ambientColor = demoIndex == 0 ? glm::vec4(0.13f, 0.15f, 0.19f, 1.0f) : (demoIndex == 1 ? glm::vec4(0.20f, 0.16f, 0.24f, 1.0f) : (demoIndex == 2 ? glm::vec4(0.10f, 0.08f, 0.16f, 1.0f) : glm::vec4(0.16f, 0.20f, 0.24f, 1.0f)));
     character.material.diffuseIntensity = 1.0f;
     character.material.specularIntensity = demoIndex == 0 ? 0.24f : (demoIndex == 1 ? 0.10f : (demoIndex == 2 ? 0.18f : 0.28f));
     character.material.specularPower = 56.0f;
-    character.material.shadowColor = XMFLOAT4(0.16f, 0.12f, 0.23f, 1.0f);
-    character.material.rimColor = XMFLOAT4(0.62f, 0.88f, 1.0f, 1.0f);
+    character.material.shadowColor = glm::vec4(0.16f, 0.12f, 0.23f, 1.0f);
+    character.material.rimColor = glm::vec4(0.62f, 0.88f, 1.0f, 1.0f);
     character.material.lightingModel = demoIndex == 1 ? 1 : 0;
     character.material.surfaceEffect = 0;
     character.material.toonSteps = 4.0f;
@@ -79,7 +79,7 @@ void Scene::BuildDemo(int demoIndex, Mesh& characterMesh, Mesh& planeMesh, bool 
     character.material.dissolveEdgeIntensity = 1.35f;
     character.material.dissolveProgressSpeed = 0.16f;
     character.material.dissolveAutoProgress = false;
-    character.material.dissolveEdgeColor = XMFLOAT4(0.18f, 0.76f, 1.0f, 1.0f);
+    character.material.dissolveEdgeColor = glm::vec4(0.18f, 0.76f, 1.0f, 1.0f);
     if (demoIndex == 2)
     {
         ApplyDissolvePreset(character.material);
@@ -87,11 +87,11 @@ void Scene::BuildDemo(int demoIndex, Mesh& characterMesh, Mesh& planeMesh, bool 
     else if (demoIndex == 3)
     {
         character.material.surfaceEffect = 2;
-        character.material.rimColor = XMFLOAT4(0.42f, 0.82f, 0.96f, 1.0f);
+        character.material.rimColor = glm::vec4(0.42f, 0.82f, 0.96f, 1.0f);
     }
     character.material.useAlbedoTexture = true;
-    character.transform.position = XMFLOAT3(0.0f, -1.0f, 0.0f);
-    character.transform.rotation = XMFLOAT3(0.0f, XM_PI, 0.0f);
+    character.transform.position = glm::vec3(0.0f, -1.0f, 0.0f);
+    character.transform.rotation = glm::vec3(0.0f, glm::pi<float>(), 0.0f);
     Add(character);
 }
 
@@ -109,7 +109,7 @@ void Scene::Animate(float deltaSeconds, bool rotateCharacter)
     if (rotateCharacter && m_objects.size() > 1)
     {
         SceneObject& character = m_objects[1];
-        character.transform.rotation.y = std::fmod(character.transform.rotation.y + deltaSeconds * 0.32f, XM_2PI);
+        character.transform.rotation.y = std::fmod(character.transform.rotation.y + deltaSeconds * 0.32f, glm::two_pi<float>());
     }
 }
 } // namespace YRender
