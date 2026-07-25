@@ -64,31 +64,20 @@ bool IsShaderStatusError(const std::string& status)
 {
     return status.find("failed") != std::string::npos ||
         status.find("error") != std::string::npos ||
-        status.find("Unable") != std::string::npos ||
-        status.find("失败") != std::string::npos ||
-        status.find("错误") != std::string::npos;
+        status.find("Unable") != std::string::npos;
 }
 
-std::string LocalizedShaderStatus(const std::string& status, UiLanguage language)
-{
-    if (status == "Shaders loaded")
-    {
-        return language == UiLanguage::Chinese ? "着色器已加载" : "Shaders loaded";
-    }
-    if (status == "Shaders reloaded successfully")
-    {
-        return language == UiLanguage::Chinese ? "着色器重新编译成功" : "Shaders recompiled successfully";
-    }
-    return status;
-}
-
-std::string ToolbarShaderStatus(const std::string& status, UiLanguage language)
+std::string ToolbarShaderStatus(const std::string& status)
 {
     if (IsShaderStatusError(status))
     {
-        return language == UiLanguage::Chinese ? "着色器编译失败，查看诊断" : "Shader compile failed, see Diagnostics";
+        return "Shader compile failed, see Diagnostics";
     }
-    return LocalizedShaderStatus(status, language);
+    if (status == "Shaders reloaded successfully")
+    {
+        return "Shaders recompiled successfully";
+    }
+    return status;
 }
 
 void PreviewTexture(const char* label, unsigned int texture, const ImVec2& size)
@@ -207,11 +196,6 @@ void EditorPanel::ClampLayout(float width, float height)
     m_layout.bottomHeight = ClampFloat(m_layout.bottomHeight, kMinBottomHeight, maxBottomHeight);
 }
 
-const char* EditorPanel::T(const char* chinese, const char* english) const
-{
-    return m_language == UiLanguage::Chinese ? chinese : english;
-}
-
 ShaderLabViewport EditorPanel::PreviewViewport(float width, float height) const
 {
     ShaderLabViewport rect;
@@ -253,21 +237,21 @@ void EditorPanel::RenderToolbar(EditorPanelContext& context)
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
         ImGuiWindowFlags_NoSavedSettings;
 
-    ImGui::Begin(T("着色器实验工具栏", "Shader Lab Toolbar"), nullptr, flags);
-    if (ImGui::Button(T("重新编译着色器", "Recompile Shaders")))
+    ImGui::Begin("Shader Lab Toolbar", nullptr, flags);
+    if (ImGui::Button("Recompile Shaders"))
     {
         context.reloadShaders();
         m_shaderStatusToastSeconds = IsShaderStatusError(context.shaderStatus) ? 0.0f : 2.0f;
     }
     if (ImGui::IsItemHovered())
     {
-        ImGui::SetTooltip("%s", T("修改 shader 文件后点击这里，无需重启渲染器。", "Click after editing shader files; no renderer restart needed."));
+        ImGui::SetTooltip("%s", "Click after editing shader files; no renderer restart needed.");
     }
     const bool shaderHasError = IsShaderStatusError(context.shaderStatus);
     if (shaderHasError || m_shaderStatusToastSeconds > 0.0f)
     {
         ImGui::SameLine();
-        const std::string shaderStatus = ToolbarShaderStatus(context.shaderStatus, m_language);
+        const std::string shaderStatus = ToolbarShaderStatus(context.shaderStatus);
         const ImVec4 shaderStatusColor = shaderHasError ?
             ImVec4(0.95f, 0.32f, 0.25f, 1.0f) :
             ImVec4(0.55f, 0.86f, 0.45f, 1.0f);
@@ -277,19 +261,17 @@ void EditorPanel::RenderToolbar(EditorPanelContext& context)
             ImGui::SetTooltip("%s", context.shaderStatus.c_str());
         }
     }
-    ToolbarLabel(T("当前演示", "Demo"));
+    ToolbarLabel("Demo");
     ImGui::SetNextItemWidth(150.0f);
     int demo = context.demo;
-    const char* demosZh[] = {"基础光照", "卡通分层 + 边缘光", "溶解 + 噪声", "深度雾 + 深度描边"};
-    const char* demosEn[] = {"Basic Lighting", "Toon Ramp + Rim", "Dissolve + Noise", "Depth Fog + Outline"};
-    const char** demos = m_language == UiLanguage::Chinese ? demosZh : demosEn;
-    if (ImGui::Combo("##ScenePreset", &demo, demos, IM_ARRAYSIZE(demosZh)))
+    const char* demos[] = {"Basic Lighting", "Toon Ramp + Rim", "Dissolve + Noise", "Depth Fog + Outline"};
+    if (ImGui::Combo("##ScenePreset", &demo, demos, IM_ARRAYSIZE(demos)))
     {
         context.demo = demo;
         context.rebuildScene();
     }
     ImGui::SameLine();
-    if (ImGui::Button(T("重置预设", "Reset Preset")))
+    if (ImGui::Button("Reset Preset"))
     {
         context.rebuildScene();
     }
@@ -297,19 +279,12 @@ void EditorPanel::RenderToolbar(EditorPanelContext& context)
     {
         ImGui::SetTooltip(
             "%s",
-            T(
-                "基础光照：普通材质的环境光、漫反射和高光。\n卡通分层 + 边缘光：把明暗分层，并增加角色轮廓亮边。\n溶解 + 噪声：让模型按噪声分布逐渐消失。\n深度雾 + 深度描边：远处变淡，并用轮廓线分开前后层次。",
-                "Basic Lighting: ambient, diffuse, and specular material lighting.\nToon Ramp + Rim: stepped lighting with a bright character outline.\nDissolve + Noise: breaks the surface apart over time.\nDepth Fog + Outline: fades distant pixels and separates silhouettes."));
+            "Basic Lighting: ambient, diffuse, and specular material lighting.\n"
+            "Toon Ramp + Rim: stepped lighting with a bright character outline.\n"
+            "Dissolve + Noise: breaks the surface apart over time.\n"
+            "Depth Fog + Outline: fades distant pixels and separates silhouettes.");
     }
 
-    ToolbarLabel(T("语言", "Language"));
-    ImGui::SetNextItemWidth(90.0f);
-    int language = m_language == UiLanguage::Chinese ? 0 : 1;
-    const char* languages[] = {"中文", "English"};
-    if (ImGui::Combo("##Language", &language, languages, IM_ARRAYSIZE(languages)))
-    {
-        m_language = language == 0 ? UiLanguage::Chinese : UiLanguage::English;
-    }
     ImGui::End();
 }
 
@@ -321,7 +296,7 @@ void EditorPanel::RenderObjects(EditorPanelContext& context)
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
         ImGuiWindowFlags_NoSavedSettings;
 
-    ImGui::Begin(T("对象", "Objects"), nullptr, flags);
+    ImGui::Begin("Objects", nullptr, flags);
     const auto& objects = context.scene.Objects();
     for (int i = 0; i < static_cast<int>(objects.size()); ++i)
     {
@@ -345,11 +320,11 @@ void EditorPanel::RenderInspector(EditorPanelContext& context)
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
         ImGuiWindowFlags_NoSavedSettings;
 
-    ImGui::Begin(T("检查器", "Inspector"), nullptr, flags);
+    ImGui::Begin("Inspector", nullptr, flags);
     auto& objects = context.scene.Objects();
     if (context.selectedObject < 0 || context.selectedObject >= static_cast<int>(objects.size()))
     {
-        ImGui::TextUnformatted(T("未选择对象", "No object selected"));
+        ImGui::TextUnformatted("No object selected");
         ImGui::End();
         return;
     }
@@ -357,26 +332,26 @@ void EditorPanel::RenderInspector(EditorPanelContext& context)
     SceneObject& object = objects[context.selectedObject];
     if (ImGui::BeginTabBar("InspectorTabs"))
     {
-        if (ImGui::BeginTabItem(T("对象", "Object")))
+        if (ImGui::BeginTabItem("Object"))
         {
             char nameBuffer[128]{};
             std::copy_n(object.name.c_str(), std::min<size_t>(object.name.size(), sizeof(nameBuffer) - 1), nameBuffer);
-            if (ImGui::InputText(T("名称", "Name"), nameBuffer, sizeof(nameBuffer)))
+            if (ImGui::InputText("Name", nameBuffer, sizeof(nameBuffer)))
             {
                 object.name = nameBuffer;
             }
 
-            ImGui::SeparatorText(T("变换", "Transform"));
-            ImGui::DragFloat3(T("位置", "Position"), &object.transform.position.x, 0.05f, -100.0f, 100.0f, "%.2f");
-            DragRotationDegrees(T("旋转", "Rotation"), object.transform.rotation);
-            ImGui::DragFloat3(T("缩放", "Scale"), &object.transform.scale.x, 0.02f, 0.01f, 100.0f, "%.2f");
+            ImGui::SeparatorText("Transform");
+            ImGui::DragFloat3("Position", &object.transform.position.x, 0.05f, -100.0f, 100.0f, "%.2f");
+            DragRotationDegrees("Rotation", object.transform.rotation);
+            ImGui::DragFloat3("Scale", &object.transform.scale.x, 0.02f, 0.01f, 100.0f, "%.2f");
             ImGui::EndTabItem();
         }
 
-        if (ImGui::BeginTabItem(T("材质", "Material")))
+        if (ImGui::BeginTabItem("Material"))
         {
-            ImGui::ColorEdit4(T("基础颜色", "Base Color"), &object.material.baseColor.x);
-            if (ImGui::Button(T("重置基础材质", "Reset Base Material")))
+            ImGui::ColorEdit4("Base Color", &object.material.baseColor.x);
+            if (ImGui::Button("Reset Base Material"))
             {
                 object.material.baseColor = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
                 object.material.useAlbedoTexture = true;
@@ -385,14 +360,14 @@ void EditorPanel::RenderInspector(EditorPanelContext& context)
                 object.material.uvOffset = glm::vec2(0.0f, 0.0f);
             }
 
-            ImGui::SeparatorText(T("贴图槽", "Texture Slots"));
-            ImGui::Checkbox(T("基础色贴图", "Albedo Texture"), &object.material.useAlbedoTexture);
-            ImGui::Checkbox(T("保留导入的无光照材质", "Preserve Imported Unlit"), &object.material.preserveImportedUnlit);
+            ImGui::SeparatorText("Texture Slots");
+            ImGui::Checkbox("Albedo Texture", &object.material.useAlbedoTexture);
+            ImGui::Checkbox("Preserve Imported Unlit", &object.material.preserveImportedUnlit);
 
-            ImGui::SeparatorText(T("贴图坐标", "Texture Coordinate"));
-            ImGui::DragFloat2(T("平铺", "Tiling"), &object.material.uvTiling.x, 0.01f, 0.01f, 32.0f, "%.2f");
-            ImGui::DragFloat2(T("偏移", "Offset"), &object.material.uvOffset.x, 0.01f, -10.0f, 10.0f, "%.2f");
-            if (ImGui::Button(T("重置贴图坐标", "Reset Texture Coordinate")))
+            ImGui::SeparatorText("Texture Coordinate");
+            ImGui::DragFloat2("Tiling", &object.material.uvTiling.x, 0.01f, 0.01f, 32.0f, "%.2f");
+            ImGui::DragFloat2("Offset", &object.material.uvOffset.x, 0.01f, -10.0f, 10.0f, "%.2f");
+            if (ImGui::Button("Reset Texture Coordinate"))
             {
                 object.material.uvTiling = glm::vec2(1.0f, 1.0f);
                 object.material.uvOffset = glm::vec2(0.0f, 0.0f);
@@ -400,36 +375,35 @@ void EditorPanel::RenderInspector(EditorPanelContext& context)
             ImGui::EndTabItem();
         }
 
-        if (ImGui::BeginTabItem(T("光照", "Lighting")))
+        if (ImGui::BeginTabItem("Lighting"))
         {
-            ImGui::SeparatorText(T("光照模型", "Lighting Model"));
-            const char* lightingModesZh[] = {"基础光照", "卡通渐变 + 边缘光"};
-            const char* lightingModesEn[] = {"Lit", "Toon Ramp + Rim"};
-            const char** lightingModes = m_language == UiLanguage::Chinese ? lightingModesZh : lightingModesEn;
-            ImGui::Combo(T("模型", "Model"), &object.material.lightingModel, lightingModes, IM_ARRAYSIZE(lightingModesZh));
+            ImGui::SeparatorText("Lighting Model");
+            const char* lightingModes[] = {"Lit", "Toon Ramp + Rim"};
+            ImGui::Combo("Model", &object.material.lightingModel, lightingModes, IM_ARRAYSIZE(lightingModes));
             if (ImGui::IsItemHovered())
             {
-                ImGui::SetTooltip("%s", T(
-                    "这里选择光照计算方式。基础光照使用连续明暗；卡通渐变 + 边缘光使用分层明暗和轮廓亮边。",
-                    "Choose how lighting is calculated. Lit uses continuous shading; Toon Ramp + Rim uses stepped shading and a rim light."));
+                ImGui::SetTooltip(
+                    "%s",
+                    "Choose how lighting is calculated. Lit uses continuous shading; "
+                    "Toon Ramp + Rim uses stepped shading and a rim light.");
             }
 
             if (object.material.lightingModel == 1)
             {
-                ImGui::SeparatorText(T("卡通 / 边缘光", "Toon / Rim"));
-                ImGui::SliderFloat(T("卡通阶数", "Toon Steps"), &object.material.toonSteps, 1.0f, 8.0f, "%.0f");
-                ImGui::ColorEdit4(T("阴影颜色", "Shadow Color"), &object.material.shadowColor.x);
-                ImGui::ColorEdit4(T("边缘光颜色", "Rim Color"), &object.material.rimColor.x);
-                ImGui::SliderFloat(T("边缘光范围", "Rim Power"), &object.material.rimPower, 0.25f, 8.0f, "%.2f");
-                ImGui::SliderFloat(T("边缘光强度", "Rim Intensity"), &object.material.rimIntensity, 0.0f, 2.0f, "%.2f");
+                ImGui::SeparatorText("Toon / Rim");
+                ImGui::SliderFloat("Toon Steps", &object.material.toonSteps, 1.0f, 8.0f, "%.0f");
+                ImGui::ColorEdit4("Shadow Color", &object.material.shadowColor.x);
+                ImGui::ColorEdit4("Rim Color", &object.material.rimColor.x);
+                ImGui::SliderFloat("Rim Power", &object.material.rimPower, 0.25f, 8.0f, "%.2f");
+                ImGui::SliderFloat("Rim Intensity", &object.material.rimIntensity, 0.0f, 2.0f, "%.2f");
             }
 
-            ImGui::SeparatorText(T("材质受光", "Material Lighting"));
-            ImGui::ColorEdit4(T("环境光", "Ambient Color"), &object.material.ambientColor.x);
-            ImGui::SliderFloat(T("漫反射强度", "Diffuse Intensity"), &object.material.diffuseIntensity, 0.0f, 3.0f, "%.2f");
-            ImGui::SliderFloat(T("高光强度", "Specular Intensity"), &object.material.specularIntensity, 0.0f, 3.0f, "%.2f");
-            ImGui::SliderFloat(T("高光范围", "Specular Power"), &object.material.specularPower, 1.0f, 256.0f, "%.0f");
-            if (ImGui::Button(T("重置材质光照", "Reset Material Lighting")))
+            ImGui::SeparatorText("Material Lighting");
+            ImGui::ColorEdit4("Ambient Color", &object.material.ambientColor.x);
+            ImGui::SliderFloat("Diffuse Intensity", &object.material.diffuseIntensity, 0.0f, 3.0f, "%.2f");
+            ImGui::SliderFloat("Specular Intensity", &object.material.specularIntensity, 0.0f, 3.0f, "%.2f");
+            ImGui::SliderFloat("Specular Power", &object.material.specularPower, 1.0f, 256.0f, "%.0f");
+            if (ImGui::Button("Reset Material Lighting"))
             {
                 object.material.ambientColor = glm::vec4(0.12f, 0.14f, 0.18f, 1.0f);
                 object.material.diffuseIntensity = 1.0f;
@@ -442,22 +416,21 @@ void EditorPanel::RenderInspector(EditorPanelContext& context)
                 object.material.rimIntensity = 0.45f;
             }
 
-            ImGui::SeparatorText(T("方向光", "Directional Lights"));
+            ImGui::SeparatorText("Directional Lights");
             auto& lights = context.scene.DirectionalLights();
-            ImGui::Text("%s: %d", T("数量", "Count"), static_cast<int>(lights.size()));
+            ImGui::Text("%s: %d", "Count", static_cast<int>(lights.size()));
             ImGui::TextWrapped(
                 "%s",
-                T(
-                    "方向光可以理解为太阳光：没有固定位置，场景中的物体都会从同一个方向受光。第一盏通常是主光，第二盏通常是补光。",
-                    "Directional lights behave like the sun: they have no position, only a shared light direction. The first light is usually the key light and the second is the fill light."));
-            if (lights.size() < 4 && ImGui::Button(T("添加方向光", "Add Directional Light")))
+                "Directional lights behave like the sun: they have no position, only a shared light direction. "
+                "The first light is usually the key light and the second is the fill light.");
+            if (lights.size() < 4 && ImGui::Button("Add Directional Light"))
             {
                 lights.push_back({glm::vec3(-0.35f, -0.85f, 0.35f), 0.5f, glm::vec3(1.0f, 1.0f, 1.0f), 0.0f});
             }
             if (lights.size() > 1)
             {
                 ImGui::SameLine();
-                if (ImGui::Button(T("删除最后一个", "Remove Last")))
+                if (ImGui::Button("Remove Last"))
                 {
                     lights.pop_back();
                 }
@@ -467,25 +440,24 @@ void EditorPanel::RenderInspector(EditorPanelContext& context)
             {
                 DirectionalLight& light = lights[static_cast<size_t>(i)];
                 ImGui::PushID(i);
-                const char* role = i == 0 ? T("（主光）", " (Key Light)") : (i == 1 ? T("（补光）", " (Fill Light)") : "");
-                const std::string header = std::string(T("方向光", "Directional Light")) + " " + std::to_string(i + 1) + role;
+                const char* role = i == 0 ? " (Key Light)" : (i == 1 ? " (Fill Light)" : "");
+                const std::string header = std::string("Directional Light") + " " + std::to_string(i + 1) + role;
                 if (ImGui::CollapsingHeader(header.c_str(), ImGuiTreeNodeFlags_DefaultOpen))
                 {
-                    ImGui::DragFloat3(T("方向", "Direction"), &light.direction.x, 0.01f, -1.0f, 1.0f, "%.2f");
+                    ImGui::DragFloat3("Direction", &light.direction.x, 0.01f, -1.0f, 1.0f, "%.2f");
                     if (ImGui::IsItemHovered())
                     {
                         ImGui::SetTooltip(
                             "%s",
-                            T(
-                                "这是光线传播方向，不是灯的位置。修改后点击“归一化方向”可保持方向向量长度为 1。",
-                                "This is the light travel direction, not a position. Click Normalize Direction to keep the vector length at 1."));
+                            "This is the light travel direction, not a position. "
+                            "Click Normalize Direction to keep the vector length at 1.");
                     }
-                    if (ImGui::Button(T("归一化方向", "Normalize Direction")))
+                    if (ImGui::Button("Normalize Direction"))
                     {
                         NormalizeDirection(light.direction);
                     }
-                    ImGui::ColorEdit3(T("颜色", "Color"), &light.color.x);
-                    ImGui::SliderFloat(T("强度", "Intensity"), &light.intensity, 0.0f, 3.0f, "%.2f");
+                    ImGui::ColorEdit3("Color", &light.color.x);
+                    ImGui::SliderFloat("Intensity", &light.intensity, 0.0f, 3.0f, "%.2f");
                 }
                 ImGui::PopID();
             }
@@ -494,13 +466,11 @@ void EditorPanel::RenderInspector(EditorPanelContext& context)
 
         const ImGuiTabItemFlags selectEffectsTab =
             (object.material.surfaceEffect > 0 && ImGui::IsWindowAppearing()) ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
-        if (ImGui::BeginTabItem(T("效果", "Effects"), nullptr, selectEffectsTab))
+        if (ImGui::BeginTabItem("Effects", nullptr, selectEffectsTab))
         {
-            ImGui::SeparatorText(T("表面 / 材质效果", "Surface / Material Effects"));
-            const char* surfaceEffectsZh[] = {"无额外效果", "溶解效果", "深度雾 + 深度描边"};
-            const char* surfaceEffectsEn[] = {"None", "Dissolve Effects", "Depth Fog + Outline"};
-            const char** surfaceEffects = m_language == UiLanguage::Chinese ? surfaceEffectsZh : surfaceEffectsEn;
-            if (ImGui::Combo(T("效果", "Effect"), &object.material.surfaceEffect, surfaceEffects, IM_ARRAYSIZE(surfaceEffectsZh)))
+            ImGui::SeparatorText("Surface / Material Effects");
+            const char* surfaceEffects[] = {"None", "Dissolve Effects", "Depth Fog + Outline"};
+            if (ImGui::Combo("Effect", &object.material.surfaceEffect, surfaceEffects, IM_ARRAYSIZE(surfaceEffects)))
             {
                 if (object.material.surfaceEffect == 1)
                 {
@@ -509,24 +479,15 @@ void EditorPanel::RenderInspector(EditorPanelContext& context)
             }
             if (ImGui::IsItemHovered())
             {
-                ImGui::SetTooltip("%s", T(
-                    "这里选择叠加在光照之上的表面效果。溶解不会改变光照模型，只会裁切像素并给边缘增加发光。",
-                    "These effects are layered on top of lighting. Dissolve does not change the lighting model; it clips pixels and adds edge emission."));
+                ImGui::SetTooltip(
+                    "%s",
+                    "These effects are layered on top of lighting. Dissolve does not change the lighting model; "
+                    "it clips pixels and adds edge emission.");
             }
 
             if (object.material.surfaceEffect == 1)
             {
-                const char* dissolveModesZh[] = {
-                    "基础噪声（默认）",
-                    "高度 / 定向",
-                    "局部球形",
-                    "焚烧 / 灰烬",
-                    "FlowMap 能量",
-                    "像素化消散",
-                    "边缘粒子 / 灰烬",
-                    "烟雾消散",
-                };
-                const char* dissolveModesEn[] = {
+                const char* dissolveModes[] = {
                     "Basic Noise (Default)",
                     "Height / Directional",
                     "Local Sphere",
@@ -536,23 +497,22 @@ void EditorPanel::RenderInspector(EditorPanelContext& context)
                     "Edge Particles / Ash",
                     "Smoke",
                 };
-                const char** dissolveModes = m_language == UiLanguage::Chinese ? dissolveModesZh : dissolveModesEn;
-                ImGui::SeparatorText(T("溶解效果", "Dissolve Effect"));
+                ImGui::SeparatorText("Dissolve Effect");
                 if (ImGui::Combo(
-                        T("类型", "Type"),
+                        "Type",
                         &object.material.dissolveMode,
                         dissolveModes,
-                        IM_ARRAYSIZE(dissolveModesZh)))
+                        IM_ARRAYSIZE(dissolveModes)))
                 {
                     ApplyDissolvePreset(object.material, object.material.dissolveMode);
                 }
-                ImGui::SliderFloat(T("溶解进度", "Dissolve Amount"), &object.material.dissolveAmount, 0.0f, 1.0f, "%.2f");
-                ImGui::SliderFloat(T("噪声尺度", "Noise Scale"), &object.material.dissolveNoiseScale, 0.1f, 12.0f, "%.2f");
-                ImGui::SliderFloat(T("边缘宽度", "Edge Width"), &object.material.dissolveEdgeWidth, 0.001f, 0.5f, "%.3f");
-                ImGui::ColorEdit4(T("边缘颜色", "Edge Color"), &object.material.dissolveEdgeColor.x);
-                ImGui::ColorEdit4(T("次级边缘颜色", "Secondary Edge Color"), &object.material.dissolveSecondaryColor.x);
-                ImGui::SliderFloat(T("边缘亮度", "Edge Intensity"), &object.material.dissolveEdgeIntensity, 0.0f, 8.0f, "%.2f");
-                ImGui::SliderFloat(T("噪声动画速度", "Noise Speed"), &object.material.dissolveSpeed, -1.0f, 1.0f, "%.2f");
+                ImGui::SliderFloat("Dissolve Amount", &object.material.dissolveAmount, 0.0f, 1.0f, "%.2f");
+                ImGui::SliderFloat("Noise Scale", &object.material.dissolveNoiseScale, 0.1f, 12.0f, "%.2f");
+                ImGui::SliderFloat("Edge Width", &object.material.dissolveEdgeWidth, 0.001f, 0.5f, "%.3f");
+                ImGui::ColorEdit4("Edge Color", &object.material.dissolveEdgeColor.x);
+                ImGui::ColorEdit4("Secondary Edge Color", &object.material.dissolveSecondaryColor.x);
+                ImGui::SliderFloat("Edge Intensity", &object.material.dissolveEdgeIntensity, 0.0f, 8.0f, "%.2f");
+                ImGui::SliderFloat("Noise Speed", &object.material.dissolveSpeed, -1.0f, 1.0f, "%.2f");
 
                 if (object.material.dissolveMode == 1 ||
                     object.material.dissolveMode == 3 ||
@@ -560,39 +520,39 @@ void EditorPanel::RenderInspector(EditorPanelContext& context)
                     object.material.dissolveMode == 6 ||
                     object.material.dissolveMode == 7)
                 {
-                    ImGui::DragFloat3(T("溶解方向", "Dissolve Direction"), &object.material.dissolveDirection.x, 0.01f, -1.0f, 1.0f, "%.2f");
-                    if (ImGui::Button(T("归一化溶解方向", "Normalize Dissolve Direction")))
+                    ImGui::DragFloat3("Dissolve Direction", &object.material.dissolveDirection.x, 0.01f, -1.0f, 1.0f, "%.2f");
+                    if (ImGui::Button("Normalize Dissolve Direction"))
                     {
                         NormalizeDirection(object.material.dissolveDirection);
                     }
-                    ImGui::SliderFloat(T("边界噪声扰动", "Boundary Noise"), &object.material.dissolveNoiseInfluence, 0.0f, 0.5f, "%.2f");
+                    ImGui::SliderFloat("Boundary Noise", &object.material.dissolveNoiseInfluence, 0.0f, 0.5f, "%.2f");
                 }
                 else if (object.material.dissolveMode == 2)
                 {
-                    ImGui::SliderFloat3(T("球心（模型内）", "Sphere Center (Local)"), &object.material.dissolveCenter.x, 0.0f, 1.0f, "%.2f");
-                    ImGui::SliderFloat(T("球面噪声扰动", "Sphere Noise"), &object.material.dissolveNoiseInfluence, 0.0f, 0.5f, "%.2f");
+                    ImGui::SliderFloat3("Sphere Center (Local)", &object.material.dissolveCenter.x, 0.0f, 1.0f, "%.2f");
+                    ImGui::SliderFloat("Sphere Noise", &object.material.dissolveNoiseInfluence, 0.0f, 0.5f, "%.2f");
                 }
                 else if (object.material.dissolveMode == 4)
                 {
-                    ImGui::SliderFloat(T("流动扭曲", "Flow Distortion"), &object.material.dissolveFlowStrength, 0.0f, 1.5f, "%.2f");
+                    ImGui::SliderFloat("Flow Distortion", &object.material.dissolveFlowStrength, 0.0f, 1.5f, "%.2f");
                 }
                 if (object.material.dissolveMode == 5)
                 {
-                    ImGui::SliderFloat(T("世界像素块大小", "World Pixel Block Size"), &object.material.dissolvePixelSize, 0.012f, 0.16f, "%.3f");
+                    ImGui::SliderFloat("World Pixel Block Size", &object.material.dissolvePixelSize, 0.012f, 0.16f, "%.3f");
                 }
 
                 if (object.material.dissolveMode == 3 ||
                     object.material.dissolveMode == 6 ||
                     object.material.dissolveMode == 7)
                 {
-                    ImGui::SeparatorText(T("动态粒子层", "Dynamic Particle Layer"));
-                    ImGui::SliderFloat(T("粒子发射率", "Particle Rate"), &object.material.dissolveParticleRate, 0.0f, 220.0f, "%.0f");
-                    ImGui::SliderFloat(T("粒子大小", "Particle Size"), &object.material.dissolveParticleSize, 0.01f, 0.35f, "%.3f");
-                    ImGui::SliderFloat(T("粒子寿命", "Particle Lifetime"), &object.material.dissolveParticleLifetime, 0.2f, 5.0f, "%.2f");
-                    ImGui::DragFloat3(T("粒子风向", "Particle Wind"), &object.material.dissolveParticleWind.x, 0.01f, -1.5f, 1.5f, "%.2f");
+                    ImGui::SeparatorText("Dynamic Particle Layer");
+                    ImGui::SliderFloat("Particle Rate", &object.material.dissolveParticleRate, 0.0f, 220.0f, "%.0f");
+                    ImGui::SliderFloat("Particle Size", &object.material.dissolveParticleSize, 0.01f, 0.35f, "%.3f");
+                    ImGui::SliderFloat("Particle Lifetime", &object.material.dissolveParticleLifetime, 0.2f, 5.0f, "%.2f");
+                    ImGui::DragFloat3("Particle Wind", &object.material.dissolveParticleWind.x, 0.01f, -1.5f, 1.5f, "%.2f");
                 }
 
-                if (ImGui::Checkbox(T("自动循环溶解", "Auto Progress"), &object.material.dissolveAutoProgress) &&
+                if (ImGui::Checkbox("Auto Progress", &object.material.dissolveAutoProgress) &&
                     !object.material.dissolveAutoProgress)
                 {
                     object.material.dissolvePaused = false;
@@ -600,15 +560,15 @@ void EditorPanel::RenderInspector(EditorPanelContext& context)
                 if (object.material.dissolveAutoProgress)
                 {
                     ImGui::SameLine();
-                    if (ImGui::Button(object.material.dissolvePaused ? T("继续", "Resume") : T("暂停", "Pause")))
+                    if (ImGui::Button(object.material.dissolvePaused ? "Resume" : "Pause"))
                     {
                         object.material.dissolvePaused = !object.material.dissolvePaused;
                     }
                     if (ImGui::IsItemHovered())
                     {
-                        ImGui::SetTooltip("%s", T(
-                            "冻结当前溶解画面；继续后会从相同位置接着播放。",
-                            "Freeze the current dissolve frame. Resume continues from the same position."));
+                        ImGui::SetTooltip(
+                            "%s",
+                            "Freeze the current dissolve frame. Resume continues from the same position.");
                     }
                     const float cycle = std::fmod(
                         object.material.dissolvePlaybackTime * std::max(object.material.dissolveProgressSpeed, 0.01f),
@@ -616,33 +576,36 @@ void EditorPanel::RenderInspector(EditorPanelContext& context)
                     const float currentProgress = cycle < 0.5f ? cycle * 2.0f : 2.0f - cycle * 2.0f;
                     ImGui::Text(
                         "%s: %.2f%s",
-                        T("当前自动进度", "Current Auto Progress"),
+                        "Current Auto Progress",
                         currentProgress,
-                        object.material.dissolvePaused ? T("（已暂停）", " (Paused)") : "");
+                        object.material.dissolvePaused ? " (Paused)" : "");
                 }
-                ImGui::SliderFloat(T("溶解循环速度", "Progress Speed"), &object.material.dissolveProgressSpeed, 0.02f, 1.0f, "%.2f");
-                if (ImGui::Button(T("重置当前溶解", "Reset Current Dissolve")))
+                ImGui::SliderFloat("Progress Speed", &object.material.dissolveProgressSpeed, 0.02f, 1.0f, "%.2f");
+                if (ImGui::Button("Reset Current Dissolve"))
                 {
                     ApplyDissolvePreset(object.material, object.material.dissolveMode);
                 }
-                ImGui::TextWrapped("%s", T(
-                    "焚烧模式让模型裁切、火焰和灰烬共享同一个噪声燃烧边界。炭屑先附着在表面，再以模型局部空间的独立速度和旋转脱离，因此转台旋转时也不会与模型错位。",
-                    "Incineration uses one noisy burn field for model clipping, flames, and ash. Surface samples emit only when the moving dissolve threshold crosses them, so fire, sparks, fine ash, and sparse charcoal crumbs are born directly on the visible burn edge. They briefly remain attached, then detach with independent local-space motion."));
+                ImGui::TextWrapped(
+                    "%s",
+                    "Incineration uses one noisy burn field for model clipping, flames, and ash. "
+                    "Surface samples emit only when the moving dissolve threshold crosses them, so fire, sparks, fine ash, "
+                    "and sparse charcoal crumbs are born directly on the visible burn edge. They briefly remain attached, "
+                    "then detach with independent local-space motion.");
             }
             else if (object.material.surfaceEffect == 2)
             {
-                ImGui::SeparatorText(T("深度雾", "Depth Fog"));
-                ImGui::Checkbox(T("启用深度雾", "Enable Depth Fog"), &context.depthFogEnabled);
-                ImGui::SliderFloat(T("开始变淡距离", "Fog Start Distance"), &context.depthFogStart, 0.1f, 20.0f, "%.2f");
-                ImGui::SliderFloat(T("完全变淡距离", "Fog End Distance"), &context.depthFogEnd, 0.2f, 40.0f, "%.2f");
-                ImGui::SliderFloat(T("变淡程度", "Fog Density"), &context.depthFogDensity, 0.0f, 2.0f, "%.2f");
-                ImGui::ColorEdit4(T("雾的颜色", "Fog Color"), &context.depthFogColor.x);
-                ImGui::SeparatorText(T("深度描边", "Depth Outline"));
-                ImGui::Checkbox(T("启用深度描边", "Enable Depth Outline"), &context.depthOutlineEnabled);
-                ImGui::SliderFloat(T("描边宽度", "Outline Width"), &context.depthOutlineWidth, 0.25f, 4.0f, "%.2f");
-                ImGui::SliderFloat(T("描边强度", "Outline Strength"), &context.depthOutlineStrength, 0.0f, 1.0f, "%.2f");
-                ImGui::ColorEdit4(T("描边颜色", "Outline Color"), &context.depthOutlineColor.x);
-                if (ImGui::Button(T("重置深度效果", "Reset Depth Effect")))
+                ImGui::SeparatorText("Depth Fog");
+                ImGui::Checkbox("Enable Depth Fog", &context.depthFogEnabled);
+                ImGui::SliderFloat("Fog Start Distance", &context.depthFogStart, 0.1f, 20.0f, "%.2f");
+                ImGui::SliderFloat("Fog End Distance", &context.depthFogEnd, 0.2f, 40.0f, "%.2f");
+                ImGui::SliderFloat("Fog Density", &context.depthFogDensity, 0.0f, 2.0f, "%.2f");
+                ImGui::ColorEdit4("Fog Color", &context.depthFogColor.x);
+                ImGui::SeparatorText("Depth Outline");
+                ImGui::Checkbox("Enable Depth Outline", &context.depthOutlineEnabled);
+                ImGui::SliderFloat("Outline Width", &context.depthOutlineWidth, 0.25f, 4.0f, "%.2f");
+                ImGui::SliderFloat("Outline Strength", &context.depthOutlineStrength, 0.0f, 1.0f, "%.2f");
+                ImGui::ColorEdit4("Outline Color", &context.depthOutlineColor.x);
+                if (ImGui::Button("Reset Depth Effect"))
                 {
                     context.depthFogEnabled = true;
                     context.depthFogStart = 3.5f;
@@ -654,46 +617,53 @@ void EditorPanel::RenderInspector(EditorPanelContext& context)
                     context.depthOutlineStrength = 0.78f;
                     context.depthOutlineColor = glm::vec4(0.08f, 0.18f, 0.24f, 1.0f);
                 }
-                ImGui::TextWrapped("%s", T(
-                    "深度雾会让远处的物体慢慢接近背景颜色；深度描边会比较相邻像素的远近，在轮廓处加线。两者都属于画面效果，不会改变模型本身。",
-                    "Depth fog gently blends distant pixels toward the background. Depth outline compares nearby pixel distances and draws a silhouette edge. Both are image effects and do not change the model."));
+                ImGui::TextWrapped(
+                    "%s",
+                    "Depth fog gently blends distant pixels toward the background. "
+                    "Depth outline compares nearby pixel distances and draws a silhouette edge. "
+                    "Both are image effects and do not change the model.");
             }
             else
             {
-                ImGui::TextWrapped("%s", T("当前没有额外表面效果。光照模型仍然在“光照”页调整。", "No extra surface effect. Adjust the lighting model in the Lighting tab."));
+                ImGui::TextWrapped(
+                    "%s",
+                    "No extra surface effect. Adjust the lighting model in the Lighting tab.");
             }
 
-            ImGui::SeparatorText(T("柔和光晕（Bloom）", "Soft Glow (Bloom)"));
-            ImGui::Checkbox(T("启用柔和光晕（Bloom）", "Enable Soft Glow (Bloom)"), &context.bloomEnabled);
-            ImGui::SliderFloat(T("光晕出现起点", "Glow Start"), &context.bloomThreshold, 0.1f, 1.0f, "%.2f");
-            ImGui::SliderFloat(T("光晕强度", "Glow Strength"), &context.bloomStrength, 0.0f, 2.0f, "%.2f");
-            ImGui::TextWrapped("%s", T(
-                "Bloom 会把画面中较亮的部分扩散开来，让溶解边缘看起来更自然，不会改变模型的溶解形状。",
-                "Bloom spreads the brighter parts of the image so the dissolve edge feels more natural. It does not change the model's dissolve shape."));
+            ImGui::SeparatorText("Soft Glow (Bloom)");
+            ImGui::Checkbox("Enable Soft Glow (Bloom)", &context.bloomEnabled);
+            ImGui::SliderFloat("Glow Start", &context.bloomThreshold, 0.1f, 1.0f, "%.2f");
+            ImGui::SliderFloat("Glow Strength", &context.bloomStrength, 0.0f, 2.0f, "%.2f");
+            ImGui::TextWrapped(
+                "%s",
+                "Bloom spreads the brighter parts of the image so the dissolve edge feels more natural. "
+                "It does not change the model's dissolve shape.");
             ImGui::EndTabItem();
         }
 
-        if (ImGui::BeginTabItem(T("视图调试", "View Debug")))
+        if (ImGui::BeginTabItem("View Debug"))
         {
-            ImGui::SeparatorText(T("主视口", "Main Viewport"));
-            ImGui::Checkbox(T("线框显示", "Wireframe Overlay"), &context.wireframe);
+            ImGui::SeparatorText("Main Viewport");
+            ImGui::Checkbox("Wireframe Overlay", &context.wireframe);
             if (ImGui::IsItemHovered())
             {
-                ImGui::SetTooltip("%s", T("也可以按 F1 切换。用于检查模型拓扑、导入破面和网格密度。", "F1 also toggles this. Use it to inspect topology, import artifacts, and mesh density."));
+                ImGui::SetTooltip(
+                    "%s",
+                    "F1 also toggles this. Use it to inspect topology, import artifacts, and mesh density.");
             }
-            ImGui::Text("%s: %s", T("显示模式", "Display Mode"), context.wireframe ? T("线框", "Wireframe") : T("实体", "Solid"));
-            ImGui::Checkbox(T("启用当前效果", "Enable Current Effect"), &context.effectsEnabled);
-            ImGui::Checkbox(T("自动转台", "Auto Turntable"), &context.autoTurntable);
-            if (ImGui::Button(T("重置相机", "Reset Camera")))
+            ImGui::Text("%s: %s", "Display Mode", context.wireframe ? "Wireframe" : "Solid");
+            ImGui::Checkbox("Enable Current Effect", &context.effectsEnabled);
+            ImGui::Checkbox("Auto Turntable", &context.autoTurntable);
+            if (ImGui::Button("Reset Camera"))
             {
                 context.resetCamera();
             }
             ImGui::SameLine();
-            if (ImGui::Button(T("截图", "Screenshot")))
+            if (ImGui::Button("Screenshot"))
             {
                 context.captureScreenshot();
             }
-            ImGui::TextWrapped("%s: %s", T("截图状态", "Screenshot"), context.captureStatus.c_str());
+            ImGui::TextWrapped("%s: %s", "Screenshot", context.captureStatus.c_str());
             ImGui::EndTabItem();
         }
 
@@ -707,47 +677,47 @@ void EditorPanel::RenderDiagnosticsContent(EditorPanelContext& context)
     auto& objects = context.scene.Objects();
     if (context.selectedObject < 0 || context.selectedObject >= static_cast<int>(objects.size()))
     {
-        ImGui::TextUnformatted(T("未选择对象", "No object selected"));
+        ImGui::TextUnformatted("No object selected");
         return;
     }
 
     const SceneObject& object = objects[context.selectedObject];
     ImGui::Columns(3, "DiagnosticsColumns", false);
-    ImGui::SeparatorText(T("状态", "Status"));
-    ImGui::TextWrapped("%s: %s", T("着色器", "Shader"), context.shaderStatus.c_str());
-    ImGui::TextWrapped("%s: %s", T("模型", "Model"), context.modelStatus.c_str());
-    ImGui::TextWrapped("%s: %s", T("截图", "Screenshot"), context.captureStatus.c_str());
+    ImGui::SeparatorText("Status");
+    ImGui::TextWrapped("%s: %s", "Shader", context.shaderStatus.c_str());
+    ImGui::TextWrapped("%s: %s", "Model", context.modelStatus.c_str());
+    ImGui::TextWrapped("%s: %s", "Screenshot", context.captureStatus.c_str());
     ImGui::Text("%s: %.1f", "FPS", context.fps);
-    ImGui::Text("%s: %u x %u", T("分辨率", "Resolution"), context.width, context.height);
+    ImGui::Text("%s: %u x %u", "Resolution", context.width, context.height);
 
     ImGui::NextColumn();
-    ImGui::SeparatorText(T("网格", "Mesh"));
+    ImGui::SeparatorText("Mesh");
     if (object.mesh)
     {
-        ImGui::Text("%s: %d", T("顶点", "Vertices"), static_cast<int>(object.mesh->vertices.size()));
-        ImGui::Text("%s: %d", T("三角形", "Triangles"), static_cast<int>(object.mesh->indices.size() / 3));
-        ImGui::Text("UV: %s", object.mesh->hasTexcoords ? T("是", "Yes") : T("否", "No"));
-        ImGui::Text("%s: %s", T("法线", "Normals"), object.mesh->hasNormals ? T("是", "Yes") : T("否", "No"));
-        ImGui::Text("%s: %d", T("子网格", "Submeshes"), static_cast<int>(object.mesh->submeshes.size()));
-        ImGui::Text("%s: %d", T("材质", "Materials"), static_cast<int>(object.mesh->importedMaterials.size()));
-        ImGui::Text("%s: %d", T("内嵌贴图", "Embedded Textures"), static_cast<int>(object.mesh->embeddedImages.size()));
+        ImGui::Text("%s: %d", "Vertices", static_cast<int>(object.mesh->vertices.size()));
+        ImGui::Text("%s: %d", "Triangles", static_cast<int>(object.mesh->indices.size() / 3));
+        ImGui::Text("UV: %s", object.mesh->hasTexcoords ? "Yes" : "No");
+        ImGui::Text("%s: %s", "Normals", object.mesh->hasNormals ? "Yes" : "No");
+        ImGui::Text("%s: %d", "Submeshes", static_cast<int>(object.mesh->submeshes.size()));
+        ImGui::Text("%s: %d", "Materials", static_cast<int>(object.mesh->importedMaterials.size()));
+        ImGui::Text("%s: %d", "Embedded Textures", static_cast<int>(object.mesh->embeddedImages.size()));
         if (!object.mesh->importNotes.empty())
         {
-            ImGui::TextWrapped("%s: %s", T("备注", "Notes"), object.mesh->importNotes.c_str());
+            ImGui::TextWrapped("%s: %s", "Notes", object.mesh->importNotes.c_str());
         }
     }
     else
     {
-        ImGui::TextUnformatted(T("没有网格", "No mesh"));
+        ImGui::TextUnformatted("No mesh");
     }
 
     ImGui::NextColumn();
-    ImGui::SeparatorText(T("相机", "Camera"));
+    ImGui::SeparatorText("Camera");
     const glm::vec3& cameraPosition = context.camera.Position();
-    ImGui::Text("%s: %.2f %.2f %.2f", T("位置", "Position"), cameraPosition.x, cameraPosition.y, cameraPosition.z);
-    ImGui::Text("%s: %.2f %.2f", T("偏航/俯仰", "Yaw/Pitch"), context.camera.Yaw(), context.camera.Pitch());
-    ImGui::Text("%s: %d", T("方向光", "Directional Lights"), static_cast<int>(context.scene.DirectionalLights().size()));
-    ImGui::Text("%s: %d", T("对象", "Objects"), static_cast<int>(objects.size()));
+    ImGui::Text("%s: %.2f %.2f %.2f", "Position", cameraPosition.x, cameraPosition.y, cameraPosition.z);
+    ImGui::Text("%s: %.2f %.2f", "Yaw/Pitch", context.camera.Yaw(), context.camera.Pitch());
+    ImGui::Text("%s: %d", "Directional Lights", static_cast<int>(context.scene.DirectionalLights().size()));
+    ImGui::Text("%s: %d", "Objects", static_cast<int>(objects.size()));
     ImGui::Columns(1);
 
     if (!object.mesh)
@@ -755,13 +725,13 @@ void EditorPanel::RenderDiagnosticsContent(EditorPanelContext& context)
         return;
     }
 
-    ImGui::SeparatorText(T("子网格", "Submeshes"));
+    ImGui::SeparatorText("Submeshes");
     if (ImGui::BeginTable("BottomSubmeshDiagnostics", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
     {
         ImGui::TableSetupColumn("#");
-        ImGui::TableSetupColumn(T("索引数", "Indices"));
-        ImGui::TableSetupColumn(T("三角形", "Triangles"));
-        ImGui::TableSetupColumn(T("材质", "Material"));
+        ImGui::TableSetupColumn("Indices");
+        ImGui::TableSetupColumn("Triangles");
+        ImGui::TableSetupColumn("Material");
         ImGui::TableHeadersRow();
         for (int i = 0; i < static_cast<int>(object.mesh->submeshes.size()); ++i)
         {
@@ -788,32 +758,32 @@ void EditorPanel::RenderDebugViews(EditorPanelContext& context)
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
         ImGuiWindowFlags_NoSavedSettings;
 
-    ImGui::Begin(T("着色器实验视图", "Shader Lab Views"), nullptr, flags);
+    ImGui::Begin("Shader Lab Views", nullptr, flags);
     if (ImGui::BeginTabBar("ShaderLabTabs"))
     {
-        if (ImGui::BeginTabItem(T("调试视图", "Debug Views")))
+        if (ImGui::BeginTabItem("Debug Views"))
         {
             ImGui::BeginChild("DebugViewClip", ImVec2(0.0f, 0.0f), false, ImGuiWindowFlags_NoScrollbar);
             const ImVec2 available = ImGui::GetContentRegionAvail();
             const float previewWidth = std::max(80.0f, (available.x - 24.0f) / 3.0f);
             const float previewHeight = std::max(48.0f, available.y - ImGui::GetTextLineHeightWithSpacing());
             const ImVec2 previewSize(previewWidth, previewHeight);
-            PreviewTexture(T("场景颜色", "Scene Color"), context.sceneColor, previewSize);
+            PreviewTexture("Scene Color", context.sceneColor, previewSize);
             ImGui::SameLine();
-            PreviewTexture(T("深度", "Depth"), context.depthPreview, previewSize);
+            PreviewTexture("Depth", context.depthPreview, previewSize);
             ImGui::SameLine();
-            PreviewTexture(T("棋盘格 / 基础色", "Checker / Albedo"), context.checkerTexture, previewSize);
+            PreviewTexture("Checker / Albedo", context.checkerTexture, previewSize);
             ImGui::EndChild();
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem(T("诊断", "Diagnostics")))
+        if (ImGui::BeginTabItem("Diagnostics"))
         {
             RenderDiagnosticsContent(context);
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem(T("贴图", "Textures")))
+        if (ImGui::BeginTabItem("Textures"))
         {
-            ImGui::BulletText("%s", T("程序生成的棋盘格贴图", "Generated checker texture"));
+            ImGui::BulletText("%s", "Generated checker texture");
             auto& objects = context.scene.Objects();
             if (context.selectedObject >= 0 && context.selectedObject < static_cast<int>(objects.size()))
             {
@@ -822,19 +792,19 @@ void EditorPanel::RenderDebugViews(EditorPanelContext& context)
                 {
                     if (!object.mesh->importedMaterials.empty())
                     {
-                        ImGui::SeparatorText(T("导入贴图槽", "Imported Texture Slots"));
+                        ImGui::SeparatorText("Imported Texture Slots");
                         ImGui::Text("%s: %d  %s: %d",
-                            T("材质", "Materials"),
+                            "Materials",
                             static_cast<int>(object.mesh->importedMaterials.size()),
-                            T("内嵌贴图", "Embedded Textures"),
+                            "Embedded Textures",
                             static_cast<int>(object.mesh->embeddedImages.size()));
                         if (ImGui::BeginTable("BottomMaterialTextureSlots", 5, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_ScrollY, ImVec2(0.0f, 120.0f)))
                         {
-                            ImGui::TableSetupColumn(T("材质", "Material"));
-                            ImGui::TableSetupColumn(T("贴图", "Texture"));
-                            ImGui::TableSetupColumn(T("尺寸", "Size"));
-                            ImGui::TableSetupColumn(T("模式", "Mode"));
-                            ImGui::TableSetupColumn(T("预览", "Preview"));
+                            ImGui::TableSetupColumn("Material");
+                            ImGui::TableSetupColumn("Texture");
+                            ImGui::TableSetupColumn("Size");
+                            ImGui::TableSetupColumn("Mode");
+                            ImGui::TableSetupColumn("Preview");
                             ImGui::TableHeadersRow();
                             for (int i = 0; i < static_cast<int>(object.mesh->importedMaterials.size()); ++i)
                             {
@@ -860,7 +830,7 @@ void EditorPanel::RenderDebugViews(EditorPanelContext& context)
                                     ImGui::TextUnformatted("-");
                                 }
                                 ImGui::TableSetColumnIndex(3);
-                                const char* materialMode = material.unlit ? T("无光照", "Unlit") : T("受光照", "Lit");
+                                const char* materialMode = material.unlit ? "Unlit" : "Lit";
                                 const char* alphaMode = material.alphaBlend ? " + BLEND" : (material.alphaMask ? " + MASK" : "");
                                 ImGui::Text("%s%s", materialMode, alphaMode);
                                 ImGui::TableSetColumnIndex(4);
@@ -877,8 +847,8 @@ void EditorPanel::RenderDebugViews(EditorPanelContext& context)
                         }
                     }
 
-                    ImGui::SeparatorText(T("当前对象贴图", "Selected Object Textures"));
-                    ImGui::Text("%s: %d", T("内嵌贴图", "Embedded Textures"), static_cast<int>(object.mesh->embeddedImages.size()));
+                    ImGui::SeparatorText("Selected Object Textures");
+                    ImGui::Text("%s: %d", "Embedded Textures", static_cast<int>(object.mesh->embeddedImages.size()));
                     const float tileSize = 72.0f;
                     const float spacing = ImGui::GetStyle().ItemSpacing.x;
                     const float availableWidth = std::max(tileSize, ImGui::GetContentRegionAvail().x);
@@ -893,7 +863,7 @@ void EditorPanel::RenderDebugViews(EditorPanelContext& context)
                         }
                         else
                         {
-                            ImGui::Button(T("缺失", "Missing"), ImVec2(tileSize, tileSize));
+                            ImGui::Button("Missing", ImVec2(tileSize, tileSize));
                         }
                         ImGui::Text("%d", i);
                         ImGui::EndGroup();

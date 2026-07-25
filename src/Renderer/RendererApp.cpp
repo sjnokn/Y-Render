@@ -35,17 +35,17 @@ const char* ShowcaseEffectName(int demo)
 {
     if (demo == 0)
     {
-        return "基础光照";
+        return "Basic Lighting";
     }
     if (demo == 1)
     {
-        return "卡通分层 + 边缘光";
+        return "Toon Ramp + Rim";
     }
     if (demo == 2)
     {
-        return "溶解 + 噪声";
+        return "Dissolve + Noise";
     }
-    return "深度雾 + 深度描边";
+    return "Depth Fog + Outline";
 }
 
 std::wstring ResolveAssetPath(const std::wstring& path)
@@ -1222,7 +1222,7 @@ void RendererApp::RenderShowcaseOverlay()
         ImGuiWindowFlags_NoInputs;
 
     ImGui::Begin("Y-Render Showcase", nullptr, flags);
-    ImGui::TextDisabled("Y-RENDER  /  展示模式");
+    ImGui::TextDisabled("Y-RENDER  /  SHOWCASE");
     int currentEffect = m_demo;
     if (m_scene.Objects().size() > 1)
     {
@@ -1230,12 +1230,12 @@ void RendererApp::RenderShowcaseOverlay()
         currentEffect = character.material.surfaceEffect == 1 ? 2 :
             (character.material.surfaceEffect == 2 ? 3 : (character.material.lightingModel > 0 ? 1 : 0));
     }
-    ImGui::TextColored(ImVec4(0.95f, 0.72f, 0.30f, 1.0f), "当前演示 %d/%d：%s", currentEffect + 1, kDemoCount, ShowcaseEffectName(currentEffect));
-    ImGui::Text("演示状态：%s", m_effectsEnabled ? "开启" : "旁路");
-    ImGui::Text("自动转台：%s", m_autoTurntable ? "开启" : "关闭");
+    ImGui::TextColored(ImVec4(0.95f, 0.72f, 0.30f, 1.0f), "Demo %d/%d: %s", currentEffect + 1, kDemoCount, ShowcaseEffectName(currentEffect));
+    ImGui::Text("Effect: %s", m_effectsEnabled ? "On" : "Bypass");
+    ImGui::Text("Turntable: %s", m_autoTurntable ? "On" : "Off");
     ImGui::Separator();
-    ImGui::TextDisabled("拖动旋转  |  滚轮缩放  |  R 重置视角");
-    ImGui::TextDisabled("Tab/1/2/3/4 切换效果  |  Space 对比  |  T 转台  |  F2 实验面板");
+    ImGui::TextDisabled("Drag rotate  |  Scroll zoom  |  R reset view");
+    ImGui::TextDisabled("Tab/1/2/3/4 switch  |  Space compare  |  T turntable  |  F2 lab panel");
     ImGui::End();
 }
 

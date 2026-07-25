@@ -11,12 +11,6 @@
 
 namespace YRender
 {
-enum class UiLanguage
-{
-    Chinese,
-    English,
-};
-
 struct ShaderLabLayout
 {
     float leftWidth = 260.0f;
@@ -78,7 +72,6 @@ public:
 
 private:
     void ClampLayout(float width, float height);
-    const char* T(const char* chinese, const char* english) const;
     void RenderToolbar(EditorPanelContext& context);
     void RenderObjects(EditorPanelContext& context);
     void RenderInspector(EditorPanelContext& context);
@@ -86,7 +79,6 @@ private:
     void RenderDiagnosticsContent(EditorPanelContext& context);
 
     ShaderLabLayout m_layout;
-    UiLanguage m_language = UiLanguage::Chinese;
     float m_shaderStatusToastSeconds = 0.0f;
 };
 } // namespace YRender
