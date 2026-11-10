@@ -1,5 +1,7 @@
 #include "Assets/MeshFactory.h"
 
+#include "Core/Log.h"
+
 #include "Core/Platform.h"
 
 #include <glm/glm.hpp>
@@ -367,8 +369,8 @@ void ParseEmbeddedImages(const tinygltf::Model& model, Mesh& outMesh)
         embedded.name = image.name;
         embedded.mimeType = image.mimeType;
 
-        // stb decoding is disabled (TINYGLTF_NO_STB_IMAGE); copy the raw
-        // bufferView bytes and let ResourceManager decode them later.
+        // Keep the original bufferView bytes and let ResourceManager decode
+        // them later, preserving the existing texture upload path.
         if (image.bufferView >= 0 && static_cast<size_t>(image.bufferView) < model.bufferViews.size())
         {
             const tinygltf::BufferView& view = model.bufferViews[static_cast<size_t>(image.bufferView)];
@@ -819,8 +821,14 @@ bool LoadGltf(const std::wstring& path, Mesh& outMesh)
         loaded = loader.LoadASCIIFromFile(&model, &err, &warn, utf8Path);
     }
 
+    if (!warn.empty())
+    {
+        LogWarning("glTF import warning for '" + utf8Path + "':\n" + warn);
+    }
+
     if (!loaded)
     {
+        LogError("glTF import failed for '" + utf8Path + "':\n" + (err.empty() ? "unknown tinygltf error" : err));
         return false;
     }
 

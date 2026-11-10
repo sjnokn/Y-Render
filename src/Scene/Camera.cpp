@@ -79,10 +79,9 @@ glm::mat4 Camera::ViewProjection(float aspect) const
     // Phase 4: column-vector convention. Projection is applied AFTER view, so
     // the column-vector product is projection*view (projection first, view
     // second) - the reverse of the old DX view*projection row-vector form.
-    // Left-handed + [0,1] depth matches the previous XMMatrixPerspectiveFovLH /
-    // XMMatrixLookAtLH behaviour exactly.
+    // Left-handed + OpenGL's [-1,1] depth range matches the OpenGL clip volume.
     const glm::mat4 view = glm::lookAtLH(m_position, m_target, glm::vec3(0.0f, 1.0f, 0.0f));
-    const glm::mat4 projection = glm::perspectiveLH_ZO(glm::radians(45.0f), aspect, 0.05f, 200.0f);
+    const glm::mat4 projection = glm::perspectiveLH_NO(glm::radians(45.0f), aspect, 0.05f, 200.0f);
     return projection * view;
 }
 

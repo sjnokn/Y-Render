@@ -5,12 +5,14 @@
 | Area | Feature | Status |
 | --- | --- | --- |
 | Application | Win32 window, message loop, frame timer | Done |
-| Graphics API | OpenGL context, double-buffered back buffer, framebuffer target, viewport | Done |
-| Depth | Depth buffer and depth state | Done |
+| Window | Framebuffer Resize callback, viewport update, and projection refresh | Implemented; code-audited, targeted runtime resize evidence pending |
+| Graphics API | OpenGL context, double-buffered back buffer, framebuffer target, viewport | Done; runtime-rendered |
+| Rasterization | Triangle submission, vertex/index buffers, GLSL draw path, and raster state | Implemented; runtime-rendered |
+| Depth | Depth buffer and depth state | Done; runtime A/B occlusion test verified |
 | Resources | Vertex/index buffers, GLSL programs, textures, samplers | Done |
 | Mesh | Built-in mesh generation and OBJ loading | Done |
-| Camera | Perspective camera with free movement | Done |
-| Transform | Position, rotation, scale, model matrix | Done |
+| Camera | Perspective camera with free movement | Done; code and runtime showcase/orbit path verified |
+| Transform | Position, rotation, scale, model matrix, MVP path | Done; code-audited and runtime-rendered |
 | Shader | GLSL compile and bind for vertex/fragment shaders | Done |
 | Material | Base color, texture flag, specular power | Done |
 | Texture | Procedural checker texture and WIC image loader | Done |
@@ -32,7 +34,7 @@
 | Shader Reload | Runtime shader reload via F5 and debug UI | Done |
 | Multiple Lights | Basic directional light list and shader loop | Done |
 | Project Config | `config/y-render.ini` controls startup basics | Done |
-| glTF Entry | Minimal external-buffer glTF mesh loader path | Done |
+| glTF Entry | GLB/glTF mesh loading, embedded image upload, and default `character.glb` path | Done; default GLB runtime load verified |
 | Screenshot | PNG screenshot capture via F9 | Done |
 | Frame Stats | Draw calls, triangles, passes, frame time | Done |
 | Logging | OutputDebugString and `logs/y-render.log` | Done |
@@ -49,7 +51,7 @@
 
 | Area | Feature |
 | --- | --- |
-| Assets | Broaden glTF coverage to skinning, materials, and embedded buffers |
+| Assets | Broaden glTF coverage to skinning/animation and richer material semantics |
 | Materials | Serialized material files, real normal/specular texture sampling, and later glass/metal/PBR presets |
 | Rendering | Transparent queue and skybox |
 | Tooling | In-app texture/depth viewers and screenshot naming UI |
@@ -73,3 +75,16 @@
 | Animation/skinning | Mesh animation data + bone constant buffers |
 | Shadows | Shadow map pass + light-space matrices |
 | LOD/displacement | Mesh selection and vertex displacement shaders |
+
+## Audit and Runtime Verification (2026-10-18)
+
+The following status separates implementation evidence from targeted runtime evidence. “Implemented” means the code path exists; “Verified” means it was exercised in the built renderer or in a focused runtime experiment.
+
+| Capability | Implementation status | Verification status and evidence |
+| --- | --- | --- |
+| MVP transforms | Implemented | Verified through the model/view/projection path audit and the rendered character frame; no standalone numeric matrix test is recorded. |
+| Camera and perspective projection | Implemented | Camera movement, orbit framing, and perspective projection are present and visible in the runtime showcase; a separate projection-accuracy test is not recorded. |
+| Rasterization and triangle drawing | Implemented | Verified by successful OpenGL draw submission and actual rendered geometry; no isolated triangle golden-image test is recorded. |
+| Depth testing and occlusion | Implemented | Fully runtime-verified with the cross-occluding-object A/B experiment: depth enabled preserves the nearer surface, while depth disabled follows draw order. Evidence: `screenshots/y-render-20261018-200605.png` and `screenshots/y-render-20261018-200621.png`. |
+| Window Resize | Implemented | Framebuffer-size handling, viewport update, and projection refresh are code-audited; an independent runtime resize capture remains pending. |
+| Default `character.glb` loading | Implemented and repaired | Runtime-verified after removing the incompatible `TINYGLTF_NO_STB_IMAGE` definition: the built renderer loaded 129,374 vertices, 46,891 triangles, 17 submeshes, and 27 embedded images. Evidence: `screenshots/y-render-20261018-202006.png` and `logs/y-render.log`. Skinning remains a static preview. |
